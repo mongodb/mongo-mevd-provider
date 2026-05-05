@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Version>1.0.0-preview.1</Version>
+    <AssemblyName>MongoDB.VectorData</AssemblyName>
+    <RootNamespace>$(AssemblyName)</RootNamespace>
+    <TargetFrameworks>net10.0;net8.0;netstandard2.1;net472</TargetFrameworks>
+    <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsAotCompatible>
+
+    <Title>MongoDB provider for Microsoft.Extensions.VectorData</Title>
+    <Description>MongoDB provider for Microsoft.Extensions.VectorData</Description>
+  </PropertyGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)..\..\eng\LegacySupport.props" />
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MongoDB.VectorData.UnitTests" />
+    <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="MongoDB.Driver" />
+  </ItemGroup>
+
+</Project>

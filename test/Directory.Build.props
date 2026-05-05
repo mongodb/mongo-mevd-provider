@@ -1,0 +1,50 @@
+<Project>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <NetFrameworkTfm Condition="$([MSBuild]::IsOSPlatform('Windows'))">net472</NetFrameworkTfm>
+    <IsTestProject>true</IsTestProject>
+
+    <!-- MEVD9000/MEVD9001: Experimental API is subject to change. -->
+    <NoWarn>$(NoWarn);MEVD9000,MEVD9001</NoWarn>
+    <!-- CA1515: Consider making public types internal. -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+    <!-- CA1707: Identifiers should not contain underscores. -->
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+    <!-- CA1716: Identifiers should not match keywords. -->
+    <NoWarn>$(NoWarn);CA1716</NoWarn>
+    <!-- CA1720: Identifier contains type name. -->
+    <NoWarn>$(NoWarn);CA1720</NoWarn>
+    <!-- CA1721: Property names should not match get methods. -->
+    <NoWarn>$(NoWarn);CA1721</NoWarn>
+    <!-- CA1819: Properties should not return arrays. -->
+    <NoWarn>$(NoWarn);CA1819</NoWarn>
+    <!-- CS1819: Attribute on auto-property will not be emitted. -->
+    <NoWarn>$(NoWarn);CS1819</NoWarn>
+    <!-- CA1861: Avoid constant arrays as arguments. -->
+    <NoWarn>$(NoWarn);CA1861</NoWarn>
+    <!-- CA1863: Cache a CompositeFormat instance. -->
+    <NoWarn>$(NoWarn);CA1863</NoWarn>
+    <!-- CA2007/VSTHRD111: Consider calling ConfigureAwait. -->
+    <NoWarn>$(NoWarn);CA2007;VSTHRD111</NoWarn>
+    <!-- CS1591: Missing XML comment for publicly visible type/member. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- IDE0340: Use an unbound generic type name. -->
+    <NoWarn>$(NoWarn);IDE0340</NoWarn>
+    <!-- IDE1006: Naming rule violation. -->
+    <NoWarn>$(NoWarn);IDE1006</NoWarn>
+
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,50 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore ./MongoDB.VectorData.slnx
+
+      - name: Build
+        run: dotnet build ./MongoDB.VectorData.slnx --configuration Release --no-restore
+
+      - name: Run unit tests
+        run: dotnet test ./test/MongoDB.UnitTests/MongoDB.UnitTests.csproj --configuration Release --framework net10.0 --no-build --logger "console;verbosity=normal"
+
+      - name: Run conformance tests
+        run: dotnet test ./test/MongoDB.ConformanceTests/MongoDB.ConformanceTests.csproj --configuration Release --framework net10.0 --no-build --logger "console;verbosity=normal"
+
+      - name: Pack
+        run: dotnet pack ./src/MongoDB/MongoDB.csproj --configuration Release --no-build --output ./artifacts/packages
+
+      - name: Upload NuGet packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuget-packages
+          if-no-files-found: error
+          path: |
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.snupkg
