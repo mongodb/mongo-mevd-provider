@@ -24,8 +24,6 @@ internal sealed class MongoTestStore : TestStore
     public MongoClient Client => this._client ?? throw new InvalidOperationException("Not initialized");
     public IMongoDatabase Database => this._database ?? throw new InvalidOperationException("Not initialized");
 
-    private const string DefaultVectorIndexName = "vector_index";
-    private const string DefaultFullTextSearchIndexName = "full_text_search_index";
     private const int ConformanceNumCandidates = 1_000;
 
     public MongoVectorStore GetVectorStore(MongoVectorStoreOptions options)
@@ -34,26 +32,38 @@ internal sealed class MongoTestStore : TestStore
     public override VectorStoreCollection<TKey, TRecord> CreateCollection<TKey, TRecord>(
         string name,
         VectorStoreCollectionDefinition definition)
-        => new MongoCollection<TKey, TRecord>(
+    {
+        var collection = new MongoCollection<TKey, TRecord>(
             this.Database,
             name,
-            new()
-            {
-                Definition = definition,
-                NumCandidates = ConformanceNumCandidates
-            });
+            BuildCollectionOptions(name, definition));
+        collection.DeferSearchIndexCreation = true;
+        return collection;
+    }
 
     public override VectorStoreCollection<object, Dictionary<string, object?>> CreateDynamicCollection(
         string name,
         VectorStoreCollectionDefinition definition)
-        => new MongoDynamicCollection(
+    {
+        var collection = new MongoDynamicCollection(
             this.Database,
             name,
-            new()
-            {
-                Definition = definition,
-                NumCandidates = ConformanceNumCandidates
-            });
+            BuildCollectionOptions(name, definition));
+        collection.DeferSearchIndexCreation = true;
+        return collection;
+    }
+
+    // Per-collection-name index names avoid same-name drop/recreate flakiness in MongoDB Atlas Search when multiple
+    // tests share the same database. The names are deterministic in `name` so a typed VectorStoreCollection and its
+    // matching dynamic collection (created against the same logical name) share the same physical indexes.
+    private static MongoCollectionOptions BuildCollectionOptions(string name, VectorStoreCollectionDefinition definition)
+        => new()
+        {
+            Definition = definition,
+            NumCandidates = ConformanceNumCandidates,
+            VectorIndexName = $"vector_idx_{name}",
+            FullTextSearchIndexName = $"fts_idx_{name}",
+        };
 
     public override async Task WaitForDataAsync<TKey, TRecord>(
         VectorStoreCollection<TKey, TRecord> collection,
@@ -64,6 +74,10 @@ internal sealed class MongoTestStore : TestStore
         object? dummyVector)
         where TRecord : class
     {
+        // Create the search indexes now - the test has finished upserting, so the initial index build runs over the
+        // full data set rather than relying on incremental indexing, which is unreliable on Atlas Local.
+        await EnsureSearchIndexesCreatedAsync(collection).ConfigureAwait(false);
+
         var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(3);
 
         while (true)
@@ -82,6 +96,13 @@ internal sealed class MongoTestStore : TestStore
         }
     }
 
+    private static Task EnsureSearchIndexesCreatedAsync<TKey, TRecord>(VectorStoreCollection<TKey, TRecord> collection)
+        where TKey : notnull
+        where TRecord : class
+        => collection is MongoCollection<TKey, TRecord> mongoCollection
+            ? mongoCollection.CreateSearchIndexesAsync()
+            : Task.CompletedTask;
+
     private async Task WaitForSearchIndexesAsync<TKey, TRecord>(
         VectorStoreCollection<TKey, TRecord> collection,
         bool hasVectorIndex)
@@ -99,7 +120,8 @@ internal sealed class MongoTestStore : TestStore
             ?? throw new InvalidOperationException("MongoDB conformance tests require a MongoDB-backed collection.");
 
         Exception? lastException = null;
-        var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(2);
+        // Atlas Search index builds can take several minutes; keep the wait well above the conservative one.
+        var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(5);
 
         while (DateTime.UtcNow < deadline)
         {
@@ -147,10 +169,11 @@ internal sealed class MongoTestStore : TestStore
             collection.GetService(typeof(IMongoCollection<BsonDocument>)) as IMongoCollection<BsonDocument>
             ?? throw new InvalidOperationException("MongoDB conformance tests require a MongoDB-backed collection.");
 
+        var fullTextIndexName = GetFullTextSearchIndexName(collection);
         var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(3);
         while (DateTime.UtcNow < deadline)
         {
-            if (await FullTextSearchDataIsVisibleAsync(mongoCollection, fullTextStorageNames, recordCount).ConfigureAwait(false))
+            if (await FullTextSearchDataIsVisibleAsync(mongoCollection, fullTextIndexName, fullTextStorageNames, recordCount).ConfigureAwait(false))
             {
                 return;
             }
@@ -163,6 +186,7 @@ internal sealed class MongoTestStore : TestStore
 
     private static async Task<bool> FullTextSearchDataIsVisibleAsync(
         IMongoCollection<BsonDocument> mongoCollection,
+        string fullTextIndexName,
         IReadOnlyList<string> fullTextStorageNames,
         int recordCount)
     {
@@ -172,7 +196,7 @@ internal sealed class MongoTestStore : TestStore
             {
                 new("$search", new BsonDocument
                 {
-                    { "index", DefaultFullTextSearchIndexName },
+                    { "index", fullTextIndexName },
                     { "exists", new BsonDocument("path", fullTextStorageName) }
                 }),
                 new("$limit", recordCount == 0 ? 1 : recordCount),
@@ -202,15 +226,33 @@ internal sealed class MongoTestStore : TestStore
 
         if (hasVectorIndex)
         {
-            indexNames.Add(DefaultVectorIndexName);
+            indexNames.Add(GetVectorIndexName(collection));
         }
 
         if (GetFullTextStorageNames(collection).Count > 0)
         {
-            indexNames.Add(DefaultFullTextSearchIndexName);
+            indexNames.Add(GetFullTextSearchIndexName(collection));
         }
 
         return indexNames;
+    }
+
+    private static string GetVectorIndexName<TKey, TRecord>(VectorStoreCollection<TKey, TRecord> collection)
+        where TKey : notnull
+        where TRecord : class
+        => ReadStringField(collection, "_vectorIndexName");
+
+    private static string GetFullTextSearchIndexName<TKey, TRecord>(VectorStoreCollection<TKey, TRecord> collection)
+        where TKey : notnull
+        where TRecord : class
+        => ReadStringField(collection, "_fullTextSearchIndexName");
+
+    private static string ReadStringField(object instance, string fieldName)
+    {
+        var field = GetField(instance.GetType(), fieldName)
+            ?? throw new InvalidOperationException($"MongoDB conformance tests require a '{fieldName}' field on the collection.");
+        return field.GetValue(instance) as string
+            ?? throw new InvalidOperationException($"MongoDB conformance tests require an initialized '{fieldName}' on the collection.");
     }
 
     private static List<string> GetFullTextStorageNames<TKey, TRecord>(VectorStoreCollection<TKey, TRecord> collection)
