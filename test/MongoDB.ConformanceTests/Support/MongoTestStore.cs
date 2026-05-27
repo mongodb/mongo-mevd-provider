@@ -275,13 +275,28 @@ internal sealed class MongoTestStore : TestStore
 
     private async Task<MongoClientSettings> StartMongoDbContainerAsync()
     {
-        this._container = new MongoDbAtlasBuilder().Build();
+        // Dispose any container left over from a prior failed start before allocating a new one.
+        if (this._container is not null)
+        {
+            await this._container.DisposeAsync().ConfigureAwait(false);
+            this._container = null;
+        }
 
-        using CancellationTokenSource cts = new();
-        cts.CancelAfter(TimeSpan.FromMinutes(5));
-        await this._container.StartAsync(cts.Token).ConfigureAwait(false);
+        var container = new MongoDbAtlasBuilder().Build();
+        try
+        {
+            using CancellationTokenSource cts = new();
+            cts.CancelAfter(TimeSpan.FromMinutes(5));
+            await container.StartAsync(cts.Token).ConfigureAwait(false);
+        }
+        catch
+        {
+            await container.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
 
-        return MongoClientSettings.FromConnectionString(this._container.GetConnectionString());
+        this._container = container;
+        return MongoClientSettings.FromConnectionString(container.GetConnectionString());
     }
 
     private static readonly string? s_baseObjectId = ObjectId.GenerateNewId().ToString().Substring(0, 14);

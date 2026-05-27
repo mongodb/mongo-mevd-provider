@@ -85,18 +85,18 @@ internal sealed class MongoDbAtlasBuilder : ContainerBuilder<MongoDbAtlasBuilder
                 using var _ = await collection.SearchIndexes.ListAsync().ConfigureAwait(false);
                 ready = true;
             }
-            catch
+            catch (Exception ex) when (ex is MongoException or TimeoutException)
             {
-                // Intentionally ignored - we'll be retried.
+                // Container/search-index service not yet ready - will be retried on the next poll.
             }
 
             try
             {
                 await client.DropDatabaseAsync(databaseName).ConfigureAwait(false);
             }
-            catch
+            catch (Exception ex) when (ex is MongoException or TimeoutException)
             {
-                // Intentionally ignored.
+                // Best-effort cleanup of the throwaway readiness database.
             }
 
             return ready;
