@@ -1,15 +1,12 @@
 // Copyright (c) Microsoft. All rights reserved.
 
-using DotNet.Testcontainers.Builders;
-using DotNet.Testcontainers.Configurations;
-using DotNet.Testcontainers.Containers;
+using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using System.Reflection;
 using Microsoft.Extensions.VectorData;
 using MongoDB.VectorData;
 using MongoDB.Bson;
 using MongoDB.Driver;
-using Testcontainers.MongoDb;
 using VectorData.ConformanceTests.Support;
 
 namespace MongoDB.VectorData.ConformanceTests.Support;
@@ -20,7 +17,17 @@ internal sealed class MongoTestStore : TestStore
 {
     public static MongoTestStore Instance { get; } = new();
 
-    private MongoDbContainer? _container;
+    static MongoTestStore()
+    {
+        // Route every MongoCollection instance through our per-collection-name tracking dict so the search-index
+        // names stay consistent across construction paths (MongoTestStore, VectorStore.GetCollection, DI).
+        MongoCollectionTestHook.VectorIndexNameResolver = name =>
+            s_indexesByCollectionName.TryGetValue(name, out var n) ? n.VectorIndexName : null;
+        MongoCollectionTestHook.FullTextSearchIndexNameResolver = name =>
+            s_indexesByCollectionName.TryGetValue(name, out var n) ? n.FullTextSearchIndexName : null;
+    }
+
+    private MongoDbAtlasContainer? _container;
 
     public MongoClient? _client { get; private set; }
     public IMongoDatabase? _database { get; private set; }
@@ -28,8 +35,6 @@ internal sealed class MongoTestStore : TestStore
     public MongoClient Client => this._client ?? throw new InvalidOperationException("Not initialized");
     public IMongoDatabase Database => this._database ?? throw new InvalidOperationException("Not initialized");
 
-    private const string DefaultVectorIndexName = "vector_index";
-    private const string DefaultFullTextSearchIndexName = "full_text_search_index";
     private const int ConformanceNumCandidates = 1_000;
 
     public MongoVectorStore GetVectorStore(MongoVectorStoreOptions options)
@@ -38,7 +43,8 @@ internal sealed class MongoTestStore : TestStore
     public override VectorStoreCollection<TKey, TRecord> CreateCollection<TKey, TRecord>(
         string name,
         VectorStoreCollectionDefinition definition)
-        => new MongoCollection<TKey, TRecord>(
+    {
+        var collection = new MongoCollection<TKey, TRecord>(
             this.Database,
             name,
             new()
@@ -46,11 +52,15 @@ internal sealed class MongoTestStore : TestStore
                 Definition = definition,
                 NumCandidates = ConformanceNumCandidates
             });
+        collection.DeferSearchIndexCreation = true;
+        return collection;
+    }
 
     public override VectorStoreCollection<object, Dictionary<string, object?>> CreateDynamicCollection(
         string name,
         VectorStoreCollectionDefinition definition)
-        => new MongoDynamicCollection(
+    {
+        var collection = new MongoDynamicCollection(
             this.Database,
             name,
             new()
@@ -58,6 +68,9 @@ internal sealed class MongoTestStore : TestStore
                 Definition = definition,
                 NumCandidates = ConformanceNumCandidates
             });
+        collection.DeferSearchIndexCreation = true;
+        return collection;
+    }
 
     public override async Task WaitForDataAsync<TKey, TRecord>(
         VectorStoreCollection<TKey, TRecord> collection,
@@ -68,6 +81,15 @@ internal sealed class MongoTestStore : TestStore
         object? dummyVector)
         where TRecord : class
     {
+        // Rebuild the search indexes now: the test has finished mutating the collection, so the build runs
+        // over the current data set in one pass instead of relying on Atlas Local's incremental indexing,
+        // which is unreliable for both inserts and deletes. Fresh unique names per rebuild avoid the known
+        // same-name drop/recreate flakiness in MongoDB Atlas Search.
+        if (collection is MongoCollection<TKey, TRecord> mongoCollection)
+        {
+            await RebuildSearchIndexesAsync(mongoCollection).ConfigureAwait(false);
+        }
+
         var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(3);
 
         while (true)
@@ -83,6 +105,57 @@ internal sealed class MongoTestStore : TestStore
             {
                 await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
             }
+        }
+    }
+
+    // Tracks the most recent vector/full-text search-index names per MongoDB collection name. The next
+    // WaitForDataAsync drops these before generating fresh names, and CreateCollection / CreateDynamicCollection
+    // apply them to newly-constructed instances so a typed VectorStoreCollection and its dynamic companion always
+    // resolve to the same physical indexes.
+    private static readonly ConcurrentDictionary<string, IndexNames> s_indexesByCollectionName = new();
+
+    private sealed class IndexNames
+    {
+        public string? VectorIndexName { get; set; }
+        public string? FullTextSearchIndexName { get; set; }
+    }
+
+    private static async Task RebuildSearchIndexesAsync<TKey, TRecord>(MongoCollection<TKey, TRecord> mongoCollection)
+        where TKey : notnull
+        where TRecord : class
+    {
+        var underlyingCollection =
+            mongoCollection.GetService(typeof(IMongoCollection<BsonDocument>)) as IMongoCollection<BsonDocument>
+            ?? throw new InvalidOperationException("MongoDB conformance tests require a MongoDB-backed collection.");
+
+        var tracked = s_indexesByCollectionName.GetOrAdd(mongoCollection.Name, _ => new IndexNames());
+
+        // Drop the indexes the previous WaitForDataAsync built for this collection (best-effort).
+        if (tracked.VectorIndexName is not null)
+        {
+            await DropSearchIndexQuietlyAsync(underlyingCollection, tracked.VectorIndexName).ConfigureAwait(false);
+        }
+        if (tracked.FullTextSearchIndexName is not null && tracked.FullTextSearchIndexName != tracked.VectorIndexName)
+        {
+            await DropSearchIndexQuietlyAsync(underlyingCollection, tracked.FullTextSearchIndexName).ConfigureAwait(false);
+        }
+
+        var suffix = Guid.NewGuid().ToString("N");
+        tracked.VectorIndexName = $"vector_idx_{suffix}";
+        tracked.FullTextSearchIndexName = $"fts_idx_{suffix}";
+
+        await mongoCollection.CreateSearchIndexesAsync().ConfigureAwait(false);
+    }
+
+    private static async Task DropSearchIndexQuietlyAsync(IMongoCollection<BsonDocument> collection, string indexName)
+    {
+        try
+        {
+            await collection.SearchIndexes.DropOneAsync(indexName).ConfigureAwait(false);
+        }
+        catch (MongoCommandException)
+        {
+            // The index may not exist (e.g. collection was dropped between WaitForDataAsync calls); proceed.
         }
     }
 
@@ -103,7 +176,8 @@ internal sealed class MongoTestStore : TestStore
             ?? throw new InvalidOperationException("MongoDB conformance tests require a MongoDB-backed collection.");
 
         Exception? lastException = null;
-        var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(2);
+        // Atlas Search index builds can take several minutes; keep the wait well above the conservative one.
+        var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(5);
 
         while (DateTime.UtcNow < deadline)
         {
@@ -151,10 +225,11 @@ internal sealed class MongoTestStore : TestStore
             collection.GetService(typeof(IMongoCollection<BsonDocument>)) as IMongoCollection<BsonDocument>
             ?? throw new InvalidOperationException("MongoDB conformance tests require a MongoDB-backed collection.");
 
+        var fullTextIndexName = GetFullTextSearchIndexName(collection);
         var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(3);
         while (DateTime.UtcNow < deadline)
         {
-            if (await FullTextSearchDataIsVisibleAsync(mongoCollection, fullTextStorageNames, recordCount).ConfigureAwait(false))
+            if (await FullTextSearchDataIsVisibleAsync(mongoCollection, fullTextIndexName, fullTextStorageNames, recordCount).ConfigureAwait(false))
             {
                 return;
             }
@@ -167,6 +242,7 @@ internal sealed class MongoTestStore : TestStore
 
     private static async Task<bool> FullTextSearchDataIsVisibleAsync(
         IMongoCollection<BsonDocument> mongoCollection,
+        string fullTextIndexName,
         IReadOnlyList<string> fullTextStorageNames,
         int recordCount)
     {
@@ -176,7 +252,7 @@ internal sealed class MongoTestStore : TestStore
             {
                 new("$search", new BsonDocument
                 {
-                    { "index", DefaultFullTextSearchIndexName },
+                    { "index", fullTextIndexName },
                     { "exists", new BsonDocument("path", fullTextStorageName) }
                 }),
                 new("$limit", recordCount == 0 ? 1 : recordCount),
@@ -206,16 +282,30 @@ internal sealed class MongoTestStore : TestStore
 
         if (hasVectorIndex)
         {
-            indexNames.Add(DefaultVectorIndexName);
+            indexNames.Add(GetVectorIndexName(collection));
         }
 
         if (GetFullTextStorageNames(collection).Count > 0)
         {
-            indexNames.Add(DefaultFullTextSearchIndexName);
+            indexNames.Add(GetFullTextSearchIndexName(collection));
         }
 
         return indexNames;
     }
+
+    private static string GetVectorIndexName<TKey, TRecord>(VectorStoreCollection<TKey, TRecord> collection)
+        where TKey : notnull
+        where TRecord : class
+        => s_indexesByCollectionName.TryGetValue(collection.Name, out var n) && n.VectorIndexName is { } name
+            ? name
+            : throw new InvalidOperationException($"No tracked vector index name for collection '{collection.Name}'; ensure WaitForDataAsync ran before querying.");
+
+    private static string GetFullTextSearchIndexName<TKey, TRecord>(VectorStoreCollection<TKey, TRecord> collection)
+        where TKey : notnull
+        where TRecord : class
+        => s_indexesByCollectionName.TryGetValue(collection.Name, out var n) && n.FullTextSearchIndexName is { } name
+            ? name
+            : throw new InvalidOperationException($"No tracked full-text search index name for collection '{collection.Name}'; ensure WaitForDataAsync ran before querying.");
 
     private static List<string> GetFullTextStorageNames<TKey, TRecord>(VectorStoreCollection<TKey, TRecord> collection)
         where TKey : notnull
@@ -265,30 +355,12 @@ internal sealed class MongoTestStore : TestStore
         // Keep Atlas Local alive across conformance fixtures; restarting it causes search-index and replica-set churn.
         if (this._client is null || this._database is null)
         {
-            var useConfiguredMongoDb = MongoTestEnvironment.IsConnectionInfoDefined;
-            for (var attempt = 1; ; attempt++)
-            {
-                try
-                {
-                    var clientSettings = useConfiguredMongoDb
-                        ? MongoClientSettings.FromConnectionString(MongoTestEnvironment.ConnectionUrl)
-                        : await this.StartMongoDbContainerAsync().ConfigureAwait(false);
+            var clientSettings = MongoTestEnvironment.IsConnectionInfoDefined
+                ? MongoClientSettings.FromConnectionString(MongoTestEnvironment.ConnectionUrl)
+                : await this.StartMongoDbContainerAsync().ConfigureAwait(false);
 
-                    this._client = new MongoClient(clientSettings);
-                    this._database = this._client.GetDatabase("VectorSearchTests");
-
-                    if (!useConfiguredMongoDb)
-                    {
-                        await this.WaitForSearchIndexManagementAsync().ConfigureAwait(false);
-                    }
-
-                    break;
-                }
-                catch (MongoException ex) when (!useConfiguredMongoDb && IsMongoShutdownException(ex) && attempt < 2)
-                {
-                    await this.ResetLocalContainerAsync().ConfigureAwait(false);
-                }
-            }
+            this._client = new MongoClient(clientSettings);
+            this._database = this._client.GetDatabase("VectorSearchTests");
         }
 
         // The base TestStore disposes DefaultVectorStore between reference-counted fixture lifetimes.
@@ -297,110 +369,29 @@ internal sealed class MongoTestStore : TestStore
 
     private async Task<MongoClientSettings> StartMongoDbContainerAsync()
     {
-        this._container = new MongoDbBuilder("mongodb/mongodb-atlas-local:7.0.6")
-            .WithWaitStrategy(Wait.ForUnixContainer().AddCustomWaitStrategy(new MongoDbWaitUntil()))
-            .Build();
-
-        using CancellationTokenSource cts = new();
-        cts.CancelAfter(TimeSpan.FromMinutes(3));
-        await this._container.StartAsync(cts.Token);
-
-        return new MongoClientSettings
-        {
-            Server = new MongoServerAddress(this._container.Hostname, this._container.GetMappedPublicPort(MongoDbBuilder.MongoDbPort)),
-            DirectConnection = true,
-            // ReadConcern = ReadConcern.Linearizable,
-            // WriteConcern = WriteConcern.WMajority
-        };
-    }
-
-    private async Task ResetLocalContainerAsync()
-    {
-        this._client = null;
-        this._database = null;
-
+        // Dispose any container left over from a prior failed start before allocating a new one.
         if (this._container is not null)
         {
             await this._container.DisposeAsync().ConfigureAwait(false);
             this._container = null;
         }
-    }
 
-    private async Task WaitForSearchIndexManagementAsync()
-    {
-        const string ReadinessCollectionName = "__VectorSearchReadiness";
-        var collection = this.Database.GetCollection<BsonDocument>(ReadinessCollectionName);
-
-        await collection.InsertOneAsync(new BsonDocument("embedding", new BsonArray([1.0, 0.0, 0.0]))).ConfigureAwait(false);
-
-        Exception? lastException = null;
-        var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(2);
-
-        while (DateTime.UtcNow < deadline)
+        var container = new MongoDbAtlasBuilder().Build();
+        try
         {
-            try
-            {
-                await this.Database.RunCommandAsync<BsonDocument>(
-                    new BsonDocument
-                    {
-                        { "createSearchIndexes", ReadinessCollectionName },
-                        {
-                            "indexes",
-                            new BsonArray
-                            {
-                                new BsonDocument
-                                {
-                                    { "name", DefaultVectorIndexName },
-                                    { "type", "vectorSearch" },
-                                    {
-                                        "definition",
-                                        new BsonDocument
-                                        {
-                                            {
-                                                "fields",
-                                                new BsonArray
-                                                {
-                                                    new BsonDocument
-                                                    {
-                                                        { "type", "vector" },
-                                                        { "path", "embedding" },
-                                                        { "numDimensions", 3 },
-                                                        { "similarity", "cosine" }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }).ConfigureAwait(false);
-
-                // Leave the readiness collection in place; dropping it immediately after creating a search index can
-                // make Atlas Local churn search-index cleanup while the first conformance tests are already running.
-                return;
-            }
-            catch (MongoCommandException ex) when (ex.Message.Contains("Search Index Management service", StringComparison.Ordinal))
-            {
-                lastException = ex;
-                await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
-            }
-            catch (MongoException ex) when (IsMongoShutdownException(ex))
-            {
-                throw;
-            }
+            using CancellationTokenSource cts = new();
+            cts.CancelAfter(TimeSpan.FromMinutes(5));
+            await container.StartAsync(cts.Token).ConfigureAwait(false);
+        }
+        catch
+        {
+            await container.DisposeAsync().ConfigureAwait(false);
+            throw;
         }
 
-        throw new TimeoutException("Timed out waiting for MongoDB Atlas Local Search Index Management service.", lastException);
+        this._container = container;
+        return MongoClientSettings.FromConnectionString(container.GetConnectionString());
     }
-
-    private static bool IsMongoShutdownException(MongoException ex)
-        => ex is MongoNodeIsRecoveringException
-            || ex is MongoWriteConcernException { CodeName: "InterruptedAtShutdown" }
-            || ex is MongoCommandException { CodeName: "InterruptedAtShutdown" }
-            || ex.Message.Contains("Replication is being shut down", StringComparison.Ordinal)
-            || ex.Message.Contains("DefaultConfigManager is closed", StringComparison.Ordinal)
-            || ex.Message.Contains("node is recovering", StringComparison.Ordinal);
 
     private static readonly string? s_baseObjectId = ObjectId.GenerateNewId().ToString().Substring(0, 14);
 
@@ -418,17 +409,5 @@ internal sealed class MongoTestStore : TestStore
     {
         // Do not stop the shared Atlas Local container between fixtures; Testcontainers cleans it up when the test process exits.
         await Task.CompletedTask;
-    }
-
-    private sealed class MongoDbWaitUntil : IWaitUntil
-    {
-        /// <inheritdoc />
-        public async Task<bool> UntilAsync(IContainer container)
-        {
-            var (stdout, _) = await container.GetLogsAsync(timestampsEnabled: false)
-                .ConfigureAwait(false);
-
-            return stdout.Contains("\"msg\":\"Waiting for connections\"");
-        }
     }
 }
