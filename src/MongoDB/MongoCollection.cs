@@ -68,6 +68,12 @@ public class MongoCollection<TKey, TRecord> : VectorStoreCollection<TKey, TRecor
     /// <summary>Full text search index name to use.</summary>
     private readonly string _fullTextSearchIndexName;
 
+    /// <summary>Resolved vector index name, honoring a test-only override hook if one is installed.</summary>
+    private string VectorIndexName => MongoCollectionTestHook.VectorIndexNameResolver?.Invoke(this.Name) ?? this._vectorIndexName;
+
+    /// <summary>Resolved full-text search index name, honoring a test-only override hook if one is installed.</summary>
+    private string FullTextSearchIndexName => MongoCollectionTestHook.FullTextSearchIndexNameResolver?.Invoke(this.Name) ?? this._fullTextSearchIndexName;
+
     /// <summary>Number of max retries for vector collection operation.</summary>
     private readonly int _maxRetries;
 
@@ -411,7 +417,7 @@ public class MongoCollection<TKey, TRecord> : VectorStoreCollection<TKey, TRecor
 
         var searchQuery = MongoCollectionSearchMapping.GetSearchQuery(
             vectorArray,
-            this._vectorIndexName,
+            this.VectorIndexName,
             vectorProperty.StorageName,
             itemsAmount,
             numCandidates,
@@ -546,8 +552,8 @@ public class MongoCollection<TKey, TRecord> : VectorStoreCollection<TKey, TRecor
             vectorArray,
             keywords,
             this.Name,
-            this._vectorIndexName,
-            this._fullTextSearchIndexName,
+            this.VectorIndexName,
+            this.FullTextSearchIndexName,
             vectorProperty.StorageName,
             textDataProperty.StorageName,
             ScorePropertyName,
@@ -604,9 +610,11 @@ public class MongoCollection<TKey, TRecord> : VectorStoreCollection<TKey, TRecor
         var indexes = indexCursor.ToList(cancellationToken).Select(index => index["name"].ToString()) ?? [];
 
         var indexArray = new BsonArray();
+        var vectorIndexName = this.VectorIndexName;
+        var fullTextSearchIndexName = this.FullTextSearchIndexName;
 
         // Create the vector index config if the index does not exist
-        if (!indexes.Contains(this._vectorIndexName))
+        if (!indexes.Contains(vectorIndexName))
         {
             var fieldsArray = new BsonArray();
 
@@ -617,7 +625,7 @@ public class MongoCollection<TKey, TRecord> : VectorStoreCollection<TKey, TRecor
             {
                 indexArray.Add(new BsonDocument
                 {
-                    { "name", this._vectorIndexName },
+                    { "name", vectorIndexName },
                     { "type", "vectorSearch" },
                     { "definition", new BsonDocument { ["fields"] = fieldsArray } },
                 });
@@ -625,7 +633,7 @@ public class MongoCollection<TKey, TRecord> : VectorStoreCollection<TKey, TRecor
         }
 
         // Create the full text search index config if the index does not exist
-        if (!indexes.Contains(this._fullTextSearchIndexName))
+        if (!indexes.Contains(fullTextSearchIndexName))
         {
             var fieldsDocument = new BsonDocument();
 
@@ -635,7 +643,7 @@ public class MongoCollection<TKey, TRecord> : VectorStoreCollection<TKey, TRecor
             {
                 indexArray.Add(new BsonDocument
                 {
-                    { "name", this._fullTextSearchIndexName },
+                    { "name", fullTextSearchIndexName },
                     { "type", "search" },
                     {
                         "definition", new BsonDocument

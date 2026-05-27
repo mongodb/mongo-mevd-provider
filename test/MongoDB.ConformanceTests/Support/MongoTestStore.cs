@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft. All rights reserved.
 
+using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using System.Reflection;
 using Microsoft.Extensions.VectorData;
@@ -15,6 +16,16 @@ namespace MongoDB.VectorData.ConformanceTests.Support;
 internal sealed class MongoTestStore : TestStore
 {
     public static MongoTestStore Instance { get; } = new();
+
+    static MongoTestStore()
+    {
+        // Route every MongoCollection instance through our per-collection-name tracking dict so the search-index
+        // names stay consistent across construction paths (MongoTestStore, VectorStore.GetCollection, DI).
+        MongoCollectionTestHook.VectorIndexNameResolver = name =>
+            s_indexesByCollectionName.TryGetValue(name, out var n) ? n.VectorIndexName : null;
+        MongoCollectionTestHook.FullTextSearchIndexNameResolver = name =>
+            s_indexesByCollectionName.TryGetValue(name, out var n) ? n.FullTextSearchIndexName : null;
+    }
 
     private MongoDbAtlasContainer? _container;
 
@@ -36,7 +47,11 @@ internal sealed class MongoTestStore : TestStore
         var collection = new MongoCollection<TKey, TRecord>(
             this.Database,
             name,
-            BuildCollectionOptions(name, definition));
+            new()
+            {
+                Definition = definition,
+                NumCandidates = ConformanceNumCandidates
+            });
         collection.DeferSearchIndexCreation = true;
         return collection;
     }
@@ -48,22 +63,14 @@ internal sealed class MongoTestStore : TestStore
         var collection = new MongoDynamicCollection(
             this.Database,
             name,
-            BuildCollectionOptions(name, definition));
+            new()
+            {
+                Definition = definition,
+                NumCandidates = ConformanceNumCandidates
+            });
         collection.DeferSearchIndexCreation = true;
         return collection;
     }
-
-    // Per-collection-name index names avoid same-name drop/recreate flakiness in MongoDB Atlas Search when multiple
-    // tests share the same database. The names are deterministic in `name` so a typed VectorStoreCollection and its
-    // matching dynamic collection (created against the same logical name) share the same physical indexes.
-    private static MongoCollectionOptions BuildCollectionOptions(string name, VectorStoreCollectionDefinition definition)
-        => new()
-        {
-            Definition = definition,
-            NumCandidates = ConformanceNumCandidates,
-            VectorIndexName = $"vector_idx_{name}",
-            FullTextSearchIndexName = $"fts_idx_{name}",
-        };
 
     public override async Task WaitForDataAsync<TKey, TRecord>(
         VectorStoreCollection<TKey, TRecord> collection,
@@ -74,9 +81,14 @@ internal sealed class MongoTestStore : TestStore
         object? dummyVector)
         where TRecord : class
     {
-        // Create the search indexes now - the test has finished upserting, so the initial index build runs over the
-        // full data set rather than relying on incremental indexing, which is unreliable on Atlas Local.
-        await EnsureSearchIndexesCreatedAsync(collection).ConfigureAwait(false);
+        // Rebuild the search indexes now: the test has finished mutating the collection, so the build runs
+        // over the current data set in one pass instead of relying on Atlas Local's incremental indexing,
+        // which is unreliable for both inserts and deletes. Fresh unique names per rebuild avoid the known
+        // same-name drop/recreate flakiness in MongoDB Atlas Search.
+        if (collection is MongoCollection<TKey, TRecord> mongoCollection)
+        {
+            await RebuildSearchIndexesAsync(mongoCollection).ConfigureAwait(false);
+        }
 
         var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(3);
 
@@ -96,12 +108,56 @@ internal sealed class MongoTestStore : TestStore
         }
     }
 
-    private static Task EnsureSearchIndexesCreatedAsync<TKey, TRecord>(VectorStoreCollection<TKey, TRecord> collection)
+    // Tracks the most recent vector/full-text search-index names per MongoDB collection name. The next
+    // WaitForDataAsync drops these before generating fresh names, and CreateCollection / CreateDynamicCollection
+    // apply them to newly-constructed instances so a typed VectorStoreCollection and its dynamic companion always
+    // resolve to the same physical indexes.
+    private static readonly ConcurrentDictionary<string, IndexNames> s_indexesByCollectionName = new();
+
+    private sealed class IndexNames
+    {
+        public string? VectorIndexName { get; set; }
+        public string? FullTextSearchIndexName { get; set; }
+    }
+
+    private static async Task RebuildSearchIndexesAsync<TKey, TRecord>(MongoCollection<TKey, TRecord> mongoCollection)
         where TKey : notnull
         where TRecord : class
-        => collection is MongoCollection<TKey, TRecord> mongoCollection
-            ? mongoCollection.CreateSearchIndexesAsync()
-            : Task.CompletedTask;
+    {
+        var underlyingCollection =
+            mongoCollection.GetService(typeof(IMongoCollection<BsonDocument>)) as IMongoCollection<BsonDocument>
+            ?? throw new InvalidOperationException("MongoDB conformance tests require a MongoDB-backed collection.");
+
+        var tracked = s_indexesByCollectionName.GetOrAdd(mongoCollection.Name, _ => new IndexNames());
+
+        // Drop the indexes the previous WaitForDataAsync built for this collection (best-effort).
+        if (tracked.VectorIndexName is not null)
+        {
+            await DropSearchIndexQuietlyAsync(underlyingCollection, tracked.VectorIndexName).ConfigureAwait(false);
+        }
+        if (tracked.FullTextSearchIndexName is not null && tracked.FullTextSearchIndexName != tracked.VectorIndexName)
+        {
+            await DropSearchIndexQuietlyAsync(underlyingCollection, tracked.FullTextSearchIndexName).ConfigureAwait(false);
+        }
+
+        var suffix = Guid.NewGuid().ToString("N");
+        tracked.VectorIndexName = $"vector_idx_{suffix}";
+        tracked.FullTextSearchIndexName = $"fts_idx_{suffix}";
+
+        await mongoCollection.CreateSearchIndexesAsync().ConfigureAwait(false);
+    }
+
+    private static async Task DropSearchIndexQuietlyAsync(IMongoCollection<BsonDocument> collection, string indexName)
+    {
+        try
+        {
+            await collection.SearchIndexes.DropOneAsync(indexName).ConfigureAwait(false);
+        }
+        catch (MongoCommandException)
+        {
+            // The index may not exist (e.g. collection was dropped between WaitForDataAsync calls); proceed.
+        }
+    }
 
     private async Task WaitForSearchIndexesAsync<TKey, TRecord>(
         VectorStoreCollection<TKey, TRecord> collection,
@@ -240,20 +296,16 @@ internal sealed class MongoTestStore : TestStore
     private static string GetVectorIndexName<TKey, TRecord>(VectorStoreCollection<TKey, TRecord> collection)
         where TKey : notnull
         where TRecord : class
-        => ReadStringField(collection, "_vectorIndexName");
+        => s_indexesByCollectionName.TryGetValue(collection.Name, out var n) && n.VectorIndexName is { } name
+            ? name
+            : throw new InvalidOperationException($"No tracked vector index name for collection '{collection.Name}'; ensure WaitForDataAsync ran before querying.");
 
     private static string GetFullTextSearchIndexName<TKey, TRecord>(VectorStoreCollection<TKey, TRecord> collection)
         where TKey : notnull
         where TRecord : class
-        => ReadStringField(collection, "_fullTextSearchIndexName");
-
-    private static string ReadStringField(object instance, string fieldName)
-    {
-        var field = GetField(instance.GetType(), fieldName)
-            ?? throw new InvalidOperationException($"MongoDB conformance tests require a '{fieldName}' field on the collection.");
-        return field.GetValue(instance) as string
-            ?? throw new InvalidOperationException($"MongoDB conformance tests require an initialized '{fieldName}' on the collection.");
-    }
+        => s_indexesByCollectionName.TryGetValue(collection.Name, out var n) && n.FullTextSearchIndexName is { } name
+            ? name
+            : throw new InvalidOperationException($"No tracked full-text search index name for collection '{collection.Name}'; ensure WaitForDataAsync ran before querying.");
 
     private static List<string> GetFullTextStorageNames<TKey, TRecord>(VectorStoreCollection<TKey, TRecord> collection)
         where TKey : notnull
