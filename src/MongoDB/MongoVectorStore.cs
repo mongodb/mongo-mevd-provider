@@ -100,9 +100,9 @@ public sealed class MongoVectorStore : VectorStore
             () => this._mongoDatabase.ListCollectionNamesAsync(cancellationToken: cancellationToken)).ConfigureAwait(false);
         using var errorHandlingAsyncCursor = new ErrorHandlingAsyncCursor<string>(cursor, this._metadata, OperationName);
 
-        while (await cursor.MoveNextAsync(cancellationToken).ConfigureAwait(false))
+        while (await errorHandlingAsyncCursor.MoveNextAsync(cancellationToken).ConfigureAwait(false))
         {
-            foreach (var name in cursor.Current)
+            foreach (var name in errorHandlingAsyncCursor.Current)
             {
                 yield return name;
             }

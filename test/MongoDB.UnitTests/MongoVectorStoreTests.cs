@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.VectorData;
 using MongoDB.VectorData;
 using MongoDB.Driver;
 using Moq;
@@ -69,5 +70,36 @@ public sealed class MongoVectorStoreTests
 
         // Assert
         Assert.Equal(expectedCollectionNames, actualCollectionNames);
+    }
+
+    [Fact]
+    public async Task ListCollectionNamesAsyncTranslatesMongoExceptionDuringIteration()
+    {
+        // Arrange: cursor creation succeeds, but iteration (MoveNextAsync) throws a MongoException —
+        // simulating e.g. a connection drop mid-paging.
+        var mockCursor = new Mock<IAsyncCursor<string>>();
+        mockCursor
+            .Setup(l => l.MoveNextAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new MongoException("simulated connection drop"));
+
+        this._mockMongoDatabase
+            .Setup(l => l.ListCollectionNamesAsync(It.IsAny<ListCollectionNamesOptions>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(mockCursor.Object);
+
+        using var sut = new MongoVectorStore(this._mockMongoDatabase.Object);
+
+        // Act & Assert: every other read path on the provider translates MongoException to
+        // VectorStoreException with the operation-name / store-name metadata; enumeration of
+        // ListCollectionNamesAsync must honor the same contract.
+        var ex = await Assert.ThrowsAsync<VectorStoreException>(async () =>
+        {
+            await foreach (var _ in sut.ListCollectionNamesAsync())
+            {
+            }
+        });
+
+        Assert.Equal("ListCollectionNames", ex.OperationName);
+        Assert.Equal(MongoConstants.VectorStoreSystemName, ex.VectorStoreSystemName);
+        Assert.IsType<MongoException>(ex.InnerException);
     }
 }
