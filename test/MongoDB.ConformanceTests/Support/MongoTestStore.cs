@@ -15,6 +15,7 @@ using VectorData.ConformanceTests.Support;
 
 namespace MongoDB.VectorData.ConformanceTests.Support;
 
+#if NET
 // Force MongoTestStore's static constructor to run as soon as the conformance test assembly loads. The cctor
 // installs MongoCollectionTestHook resolvers; without this initializer those resolvers would be null until the
 // first member of MongoTestStore is accessed, leaving any MongoCollection constructed earlier (e.g. via DI
@@ -24,6 +25,7 @@ internal static class MongoTestStoreInitializer
     [ModuleInitializer]
     internal static void Init() => RuntimeHelpers.RunClassConstructor(typeof(MongoTestStore).TypeHandle);
 }
+#endif
 
 #pragma warning disable CA1001 // Type owns disposable fields but is not disposable
 
