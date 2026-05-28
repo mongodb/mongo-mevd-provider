@@ -5,6 +5,7 @@ using DotNet.Testcontainers.Configurations;
 using DotNet.Testcontainers.Containers;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.VectorData;
 using MongoDB.VectorData;
 using MongoDB.Bson;
@@ -14,6 +15,18 @@ using VectorData.ConformanceTests.Support;
 
 namespace MongoDB.VectorData.ConformanceTests.Support;
 
+#if NET
+// Force MongoTestStore's static constructor to run as soon as the conformance test assembly loads. The cctor
+// installs MongoCollectionTestHook resolvers; without this initializer those resolvers would be null until the
+// first member of MongoTestStore is accessed, leaving any MongoCollection constructed earlier (e.g. via DI
+// registrations resolving MongoCollection<TKey, TRecord> directly) silently bypassing the test hook.
+internal static class MongoTestStoreInitializer
+{
+    [ModuleInitializer]
+    internal static void Init() => RuntimeHelpers.RunClassConstructor(typeof(MongoTestStore).TypeHandle);
+}
+#endif
+
 #pragma warning disable CA1001 // Type owns disposable fields but is not disposable
 
 internal sealed class MongoTestStore : TestStore
@@ -22,8 +35,8 @@ internal sealed class MongoTestStore : TestStore
 
     private MongoDbContainer? _container;
 
-    public MongoClient? _client { get; private set; }
-    public IMongoDatabase? _database { get; private set; }
+    private MongoClient? _client { get; set; }
+    private IMongoDatabase? _database { get; set; }
 
     public MongoClient Client => this._client ?? throw new InvalidOperationException("Not initialized");
     public IMongoDatabase Database => this._database ?? throw new InvalidOperationException("Not initialized");
