@@ -22,8 +22,8 @@ internal sealed class MongoTestStore : TestStore
 
     private MongoDbContainer? _container;
 
-    public MongoClient? _client { get; private set; }
-    public IMongoDatabase? _database { get; private set; }
+    private MongoClient? _client { get; set; }
+    private IMongoDatabase? _database { get; set; }
 
     public MongoClient Client => this._client ?? throw new InvalidOperationException("Not initialized");
     public IMongoDatabase Database => this._database ?? throw new InvalidOperationException("Not initialized");
