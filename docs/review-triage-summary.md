@@ -31,6 +31,7 @@ focused PR.
 | 11 | `GetFullTextSearchQuery` accepts but ignores `filter` | ⚠️ Partly valid | Remove dead parameter | `FixUnusedFtsFilterParamOnMain` (pushed) |
 | 12 | Trim/AOT attribute messages swapped on six DI overloads | ✅ Real bug | Swap to correct pairing | `FixSwappedAotMessagesOnMain` (pushed) |
 | 13 | `VectorStoreErrorHandler` carries dead SQL-era code + wrong doc | ✅ Real (cleanup) | Remove dead code, fix summary | `FixDeadSqlErrorHandlerCodeOnMain` |
+| 14 | `RunOperationWithRetryAsync` unreachable throw + `maxRetries=0` edge | ✅ Real bug | `while (true)`, attempt-once minimum | `FixRetryZeroAndDeadThrowOnMain` |
 
 Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) · ❌ false positive (no change).
 
@@ -91,3 +92,7 @@ Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) ·
 ### 13. `VectorStoreErrorHandler` carries dead SQL-era code + wrong doc — ✅ Real (cleanup)
 **Finding:** the file contained helpers copied from a relational provider that the MongoDB provider never uses — `ExecuteWithErrorHandlingAsync(this DbConnection, …)` (×2), `ReadWithErrorHandlingAsync(this DbDataReader, …)` (×2), and the `ConfiguredCancelableErrorHandlingAsyncEnumerable<TResult, TException>` struct. Verified zero references outside the file (the provider streams via `ErrorHandlingAsyncCursor`). The file-level XML doc also wrongly described the class as "helpers for reading vector store model properties and their attributes."
 **Fix:** remove the dead members (and the now-unused `System.Data.Common` / `System.IO` usings) and rewrite the summary to describe what the class actually does (run operations and translate exceptions to `VectorStoreException`). The retained `RunOperation*` members are unchanged. Verified by the build (nothing referenced the removed code) + green suite. → `FixDeadSqlErrorHandlerCodeOnMain`.
+
+### 14. `RunOperationWithRetryAsync` unreachable throw + `maxRetries=0` edge — ✅ Real bug
+**Root cause:** both retry overloads used `while (retries < maxRetries)` with a throw after the loop. For `maxRetries >= 1` that post-loop throw was unreachable dead code (the loop always returns on success or throws once retries are exhausted). For `maxRetries == 0` the loop body never ran and the post-loop throw fired immediately with an *empty* `AggregateException` — the operation was never attempted.
+**Fix (chosen: always attempt once):** restructure to `while (true)` so the operation is attempted at least once and the in-catch `if (retries >= maxRetries)` throws once retries are exhausted (carrying the real exceptions). This deletes the unreachable post-loop throw (also required for CS0162 under warnings-as-errors) and makes `maxRetries == 0` mean "try once, no retry" (throwing the actual failure, not an empty aggregate). `maxRetries >= 1` behavior is unchanged. Tests cover both overloads: `maxRetries=0` success/failure, exactly-N attempts, and recovery after transient failures. → `FixRetryZeroAndDeadThrowOnMain`.
