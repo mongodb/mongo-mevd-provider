@@ -35,6 +35,7 @@ focused PR.
 | 15 | DI collection extensions hard-code `TKey = string` | ⚠️ By design | Document the limitation | `DocumentDiStringKeyOnMain` |
 | 16 | `MongoDynamicMapper` stores null vectors as empty arrays | ✅ Real bug | Store `BsonNull.Value` | `FixDynamicNullVectorOnMain` |
 | 17 | `MongoConstants.Supported*Types` sets are dead + misleading | ✅ Real (cleanup) | Remove all three sets | `RemoveDeadSupportedTypesConstantsOnMain` |
+| 18 | `GetVectorIndexFields` ignores `IndexKind`; `Dimensions` "unvalidated" | ⚠️ Mixed | Dimensions = false positive; document IndexKind | `DocumentVectorIndexKindOnMain` |
 
 Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) · ❌ false positive (no change).
 
@@ -111,3 +112,8 @@ Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) ·
 ### 17. `MongoConstants.Supported*Types` sets are dead and misleading — ✅ Real (cleanup)
 **Finding:** `SupportedKeyTypes`, `SupportedDataTypes`, and `SupportedVectorTypes` `HashSet<Type>` constants were never referenced and were stale — e.g. `SupportedKeyTypes` listed only `string`, implying string-only keys, while the live validation (`MongoCollection.s_validKeyTypes` / `MongoModelBuilder.ValidateKeyProperty`) also accepts `Guid`, `ObjectId`, `int`, `long`. The data/vector sets were likewise narrower than `MongoModelBuilder.IsDataPropertyTypeValid` / `IsVectorPropertyTypeValidCore`.
 **Fix:** remove all three (and the now-unused `System` / `System.Collections.Generic` usings) rather than "aligning" them — aligning would create a second source of truth prone to drift; `MongoModelBuilder` is authoritative. Distinct from the live `MongoModelBuilder.SupportedVectorTypes` (a `const string` for error messages), which is unchanged. Verified by the build (nothing referenced the removed members) + green suite. → `RemoveDeadSupportedTypesConstantsOnMain`.
+
+### 18. `GetVectorIndexFields` ignores `IndexKind`; `Dimensions` "unvalidated" — ⚠️ Mixed (one false positive, one by-design)
+**Dimensions — false positive.** `VectorPropertyModel.Dimensions` is a non-nullable `int`, and MEVD's `CollectionModelBuilder.Validate` throws `InvalidOperationException("…must have a positive number of dimensions.")` when `Dimensions <= 0` at model build (collection construction), before `GetVectorIndexFields` runs. So it can't be null or zero here; there's no opaque server error path. No change.
+**IndexKind — real but by design.** `VectorPropertyModel.IndexKind` is never emitted. Atlas Vector Search indexes are always HNSW-based with no per-field index-kind option, so there's nothing to emit, and the conformance `IndexKindTests` (which exercise `Flat`) require the provider to *accept* any index kind — validating/rejecting would break conformance. (`MongoConstants.DefaultIndexKind` is also never applied — another dead constant, akin to #17.)
+**Fix:** add a comment to `GetVectorIndexFields` documenting both — that `IndexKind` is intentionally accepted-but-not-emitted (HNSW only) and that `Dimensions` is validated upstream — so the omission is explicit rather than silent. No behavior change. → `DocumentVectorIndexKindOnMain`.
