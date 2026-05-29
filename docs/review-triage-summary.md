@@ -36,6 +36,7 @@ focused PR.
 | 16 | `MongoDynamicMapper` stores null vectors as empty arrays | ✅ Real bug | Store `BsonNull.Value` | `FixDynamicNullVectorOnMain` |
 | 17 | `MongoConstants.Supported*Types` sets are dead + misleading | ✅ Real (cleanup) | Remove all three sets | `RemoveDeadSupportedTypesConstantsOnMain` |
 | 18 | `GetVectorIndexFields` ignores `IndexKind`; `Dimensions` "unvalidated" | ⚠️ Mixed | Dimensions = false positive; document IndexKind | `DocumentVectorIndexKindOnMain` |
+| 19 | Mappers attributed `[ExcludeFromCodeCoverage]` | ✅ Real (cleanup) | Remove from both mappers | `CoverMappersOnMain` |
 
 Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) · ❌ false positive (no change).
 
@@ -117,3 +118,7 @@ Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) ·
 **Dimensions — false positive.** `VectorPropertyModel.Dimensions` is a non-nullable `int`, and MEVD's `CollectionModelBuilder.Validate` throws `InvalidOperationException("…must have a positive number of dimensions.")` when `Dimensions <= 0` at model build (collection construction), before `GetVectorIndexFields` runs. So it can't be null or zero here; there's no opaque server error path. No change.
 **IndexKind — real but by design.** `VectorPropertyModel.IndexKind` is never emitted. Atlas Vector Search indexes are always HNSW-based with no per-field index-kind option, so there's nothing to emit, and the conformance `IndexKindTests` (which exercise `Flat`) require the provider to *accept* any index kind — validating/rejecting would break conformance. (`MongoConstants.DefaultIndexKind` is also never applied — another dead constant, akin to #17.)
 **Fix:** add a comment to `GetVectorIndexFields` documenting both — that `IndexKind` is intentionally accepted-but-not-emitted (HNSW only) and that `Dimensions` is validated upstream — so the omission is explicit rather than silent. No behavior change. → `DocumentVectorIndexKindOnMain`.
+
+### 19. Mappers attributed `[ExcludeFromCodeCoverage]` — ✅ Real (cleanup)
+**Finding:** `MongoMapper<TRecord>` and `MongoDynamicMapper` — core record↔BSON mapping paths — carried `[ExcludeFromCodeCoverage]`, hiding them from coverage reports and masking any real gaps.
+**Fix:** remove the attribute from both (and the now-unused `System.Diagnostics.CodeAnalysis` using in each); both are already exercised by `MongoMapperTests` / `MongoDynamicMapperTests`. Left in place on `MongoConstants`, `Throw`, and `VectorStoreErrorHandler` (out of scope for this finding). No behavior change. → `CoverMappersOnMain`.
