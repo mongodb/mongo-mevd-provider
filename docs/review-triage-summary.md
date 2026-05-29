@@ -38,6 +38,7 @@ focused PR.
 | 18 | `GetVectorIndexFields` ignores `IndexKind`; `Dimensions` "unvalidated" | ⚠️ Mixed | Dimensions = false positive; document IndexKind | `DocumentVectorIndexKindOnMain` |
 | 19 | Mappers attributed `[ExcludeFromCodeCoverage]` | ✅ Real (cleanup) | Remove from both mappers | `CoverMappersOnMain` |
 | 20 | `[BsonElement]` vs `[VectorStoreData(StorageName)]` precedence undocumented | ⚠️ Doc gap | Document in `MongoModelBuilder` | `DocumentStorageNamePrecedenceOnMain` |
+| 21 | `MongoTestStore` reflects the private `_model` field | ✅ Real (test infra) | Expose via `GetService`, drop reflection | `ExposeModelViaGetServiceOnMain` |
 
 Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) · ❌ false positive (no change).
 
@@ -127,3 +128,7 @@ Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) ·
 ### 20. `[BsonElement]` vs `[VectorStoreData(StorageName)]` precedence undocumented — ⚠️ Doc gap
 **Finding:** the typed-record storage-name precedence (verified by `MongoBsonMappingTests`) was only described in AGENTS.md, not in the code. Note the reviewer's framing ("base applies `[VectorStoreData]`, then `ProcessProperty` overwrites with `[BsonElement]`") is slightly off: because the provider sets `UsesExternalSerializer = true`, MEVD never applies a `[VectorStoreData(StorageName=...)]` to a CLR-backed property in the first place (see #3) — `[BsonElement]` (else the CLR name) is what takes effect.
 **Fix:** add a `<remarks>` to `MongoModelBuilder` and a comment in `ProcessProperty` documenting the accurate behavior — for typed records use `[BsonElement]` (not the MEVD `StorageName`); for dynamic (definition-only) records the definition's `StorageName` is honored; the key is always stored under `_id`. The attribute types belong to MEVD / the driver, so the note lives on the provider's model builder. Documentation only. → `DocumentStorageNamePrecedenceOnMain`.
+
+### 21. `MongoTestStore` reflects the private `_model` field — ✅ Real (test-infra fragility)
+**Finding:** `GetFullTextStorageNames` used reflection to read `MongoCollection`'s private `_model` (then reflected over `CollectionModel`/`DataPropertyModel`), so renaming `_model` would break the conformance tests at runtime, not compile time. `ConformanceTests` isn't in `InternalsVisibleTo`, and the project's sanctioned escape hatch is `GetService` (already used to reach `IMongoCollection<BsonDocument>`).
+**Fix:** make `MongoCollection.GetService` return the `CollectionModel` for `typeof(CollectionModel)` (additive, consistent with the existing `IMongoCollection`/`IMongoDatabase` exposure), and rewrite `GetFullTextStorageNames` to call `GetService` and read the public `CollectionModel.DataProperties` / `DataPropertyModel.IsFullTextIndexed` / `StorageName` — removing all reflection (and the `GetField` helper / `System.Reflection` using). Now compile-time-safe. Test `GetServiceReturnsCollectionModel` covers the new hook (failed before the branch was added). → `ExposeModelViaGetServiceOnMain`.
