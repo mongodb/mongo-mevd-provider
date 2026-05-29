@@ -24,6 +24,11 @@ internal static class MongoCollectionCreateMapping
         // Create separate index for each vector property
         foreach (var property in vectorProperties)
         {
+            // VectorPropertyModel.IndexKind is intentionally not emitted: Atlas Vector Search indexes are always
+            // HNSW-based and expose no per-field index-kind option, so any IndexKind a caller specifies is accepted
+            // and served by HNSW (the conformance IndexKindTests rely on this acceptance). Dimensions is not
+            // re-validated here either: the MEVD model builder already rejects a non-positive Dimensions when the
+            // collection is constructed, before this index definition is built.
             var indexDocument = new BsonDocument
             {
                 { "type", "vector" },
