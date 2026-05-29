@@ -12,6 +12,7 @@ using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Driver;
+using MongoDB.Driver.Search;
 using Moq;
 using Xunit;
 using MEVD = Microsoft.Extensions.VectorData;
@@ -120,6 +121,8 @@ public sealed class MongoCollectionTests
             .Setup(l => l.ListCollectionNamesAsync(It.IsAny<ListCollectionNamesOptions>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(mockCursor.Object);
 
+        // No search indexes exist yet, so EnsureCollectionExistsAsync should create them. Existing search
+        // indexes are discovered via IMongoCollection.SearchIndexes ($listSearchIndexes), not Indexes.
         var mockIndexCursor = new Mock<IAsyncCursor<BsonDocument>>();
         mockIndexCursor
             .SetupSequence(l => l.MoveNext(It.IsAny<CancellationToken>()))
@@ -130,15 +133,15 @@ public sealed class MongoCollectionTests
             .Setup(l => l.Current)
             .Returns([]);
 
-        var mockMongoIndexManager = new Mock<IMongoIndexManager<BsonDocument>>();
+        var mockSearchIndexManager = new Mock<IMongoSearchIndexManager>();
 
-        mockMongoIndexManager
-            .Setup(l => l.ListAsync(It.IsAny<CancellationToken>()))
+        mockSearchIndexManager
+            .Setup(l => l.ListAsync(It.IsAny<string>(), It.IsAny<AggregateOptions>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(mockIndexCursor.Object);
 
         this._mockMongoCollection
-            .Setup(l => l.Indexes)
-            .Returns(mockMongoIndexManager.Object);
+            .Setup(l => l.SearchIndexes)
+            .Returns(mockSearchIndexManager.Object);
 
         using var sut = new MongoCollection<string, MongoHotelModel>(
             this._mockMongoDatabase.Object,
@@ -155,6 +158,60 @@ public sealed class MongoCollectionTests
 
         this._mockMongoDatabase.Verify(l => l.ListCollectionNamesAsync(
             It.IsAny<ListCollectionNamesOptions>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task EnsureCollectionExistsDoesNotRecreateExistingSearchIndexesAsync()
+    {
+        // Arrange: the vector index already exists. Atlas Search / Vector Search indexes are surfaced by
+        // $listSearchIndexes (IMongoCollection.SearchIndexes), not by the regular listIndexes API.
+        const string CollectionName = "collection";
+
+        // Regular index manager returns nothing (search indexes never appear here).
+        var mockRegularIndexCursor = new Mock<IAsyncCursor<BsonDocument>>();
+        mockRegularIndexCursor
+            .SetupSequence(l => l.MoveNext(It.IsAny<CancellationToken>()))
+            .Returns(false);
+        mockRegularIndexCursor.Setup(l => l.Current).Returns([]);
+
+        var mockRegularIndexManager = new Mock<IMongoIndexManager<BsonDocument>>();
+        mockRegularIndexManager
+            .Setup(l => l.ListAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(mockRegularIndexCursor.Object);
+        this._mockMongoCollection.Setup(l => l.Indexes).Returns(mockRegularIndexManager.Object);
+
+        // Search index manager reports the vector index as already present.
+        var existingSearchIndexes = new List<BsonDocument>
+        {
+            new() { ["name"] = MongoConstants.DefaultVectorIndexName },
+            new() { ["name"] = MongoConstants.DefaultFullTextSearchIndexName }
+        };
+
+        var mockSearchIndexCursor = new Mock<IAsyncCursor<BsonDocument>>();
+        mockSearchIndexCursor
+            .SetupSequence(l => l.MoveNext(It.IsAny<CancellationToken>()))
+            .Returns(true)
+            .Returns(false);
+        mockSearchIndexCursor.Setup(l => l.Current).Returns(existingSearchIndexes);
+
+        var mockSearchIndexManager = new Mock<IMongoSearchIndexManager>();
+        mockSearchIndexManager
+            .Setup(l => l.ListAsync(It.IsAny<string>(), It.IsAny<AggregateOptions>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(mockSearchIndexCursor.Object);
+        this._mockMongoCollection.Setup(l => l.SearchIndexes).Returns(mockSearchIndexManager.Object);
+
+        using var sut = new MongoCollection<string, MongoHotelModel>(
+            this._mockMongoDatabase.Object,
+            CollectionName);
+
+        // Act
+        await sut.EnsureCollectionExistsAsync();
+
+        // Assert: no createSearchIndexes command is issued because the indexes already exist.
+        this._mockMongoDatabase.Verify(l => l.RunCommandAsync<BsonDocument>(
+            It.IsAny<Command<BsonDocument>>(),
+            It.IsAny<ReadPreference>(),
             It.IsAny<CancellationToken>()), Times.Never);
     }
 
