@@ -102,6 +102,10 @@ internal sealed class MongoMapper<TRecord> : IMongoMapper<TRecord>
 
     public TRecord MapFromStorageToDataModel(BsonDocument storageModel, bool includeVectors)
     {
+        // Operate on a shallow copy: storageModel may be a reference into a shared search/aggregation result
+        // document, and the key remap and vector handling below would otherwise mutate the caller's document.
+        storageModel = new BsonDocument(storageModel);
+
         // Handle key property mapping due to reserved key name in Mongo.
         if (!this._keyPropertyModelName.Equals(MongoConstants.DataModelReservedKeyPropertyName, StringComparison.OrdinalIgnoreCase) &&
             this._keyClrProperty?.GetCustomAttribute<BsonIdAttribute>() is null)

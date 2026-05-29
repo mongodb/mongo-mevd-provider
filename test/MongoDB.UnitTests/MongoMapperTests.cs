@@ -85,4 +85,47 @@ public sealed class MongoMapperTests
         Assert.True(hotel.ParkingIncluded);
         Assert.True(new ReadOnlyMemory<float>([1f, 2f, 3f]).Span.SequenceEqual(hotel.DescriptionEmbedding!.Value.Span));
     }
+
+    [Fact]
+    public void MapFromStorageToDataModelDoesNotMutateInputDocumentWhenIncludingVectors()
+    {
+        // Arrange
+        var document = new BsonDocument
+        {
+            ["_id"] = "key",
+            ["HotelName"] = "Test Name",
+            ["Tags"] = BsonArray.Create(new List<string> { "tag1", "tag2" }),
+            ["parking_is_included"] = BsonValue.Create(true),
+            ["DescriptionEmbedding"] = BsonArray.Create(new List<float> { 1f, 2f, 3f })
+        };
+        var original = (BsonDocument)document.DeepClone();
+
+        // Act
+        this._sut.MapFromStorageToDataModel(document, includeVectors: true);
+
+        // Assert: the storage document (a reference into the search/aggregation result) must be left untouched.
+        Assert.Equal(original, document);
+    }
+
+    [Fact]
+    public void MapFromStorageToDataModelDoesNotMutateInputDocumentWhenExcludingVectors()
+    {
+        // Arrange
+        var document = new BsonDocument
+        {
+            ["_id"] = "key",
+            ["HotelName"] = "Test Name",
+            ["Tags"] = BsonArray.Create(new List<string> { "tag1", "tag2" }),
+            ["parking_is_included"] = BsonValue.Create(true),
+            ["DescriptionEmbedding"] = BsonArray.Create(new List<float> { 1f, 2f, 3f })
+        };
+        var original = (BsonDocument)document.DeepClone();
+
+        // Act
+        this._sut.MapFromStorageToDataModel(document, includeVectors: false);
+
+        // Assert: the storage document must be left untouched, including the vector field that is dropped
+        // from the deserialized record when vectors are excluded.
+        Assert.Equal(original, document);
+    }
 }
