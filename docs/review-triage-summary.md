@@ -29,6 +29,7 @@ focused PR.
 | 9 | `DefaultDistanceFunction` constant inconsistent with mapping | ⚠️ Latent | Set to `CosineSimilarity` | `FixDefaultDistanceFunctionOnMain` (pushed) |
 | 10 | Batch `UpsertAsync` issues N round trips | ✅ Real (perf) | Single `BulkWriteAsync` | `FixBatchUpsertBulkWriteOnMain` (pushed) |
 | 11 | `GetFullTextSearchQuery` accepts but ignores `filter` | ⚠️ Partly valid | Remove dead parameter | `FixUnusedFtsFilterParamOnMain` (pushed) |
+| 12 | Trim/AOT attribute messages swapped on six DI overloads | ✅ Real bug | Swap to correct pairing | `FixSwappedAotMessagesOnMain` (pushed) |
 
 Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) · ❌ false positive (no change).
 
@@ -79,3 +80,9 @@ Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) ·
 ### 11. `GetFullTextSearchQuery` accepts but ignores `filter` — ⚠️ Partly valid
 **Finding:** the parameter is genuinely dead (never referenced); the filter is correctly applied by the caller as a `$match` after `$search`. The reviewer's suggested optimization (embed the filter inside `$search`) is **not** a simple rewire: `$search` does not accept an MQL filter — it would need a dedicated MQL→Atlas-Search-operator translator (a larger, behavior-affecting change). Scoped per decision.
 **Fix:** remove the dead parameter and document where the full-text filter is applied. Characterization test locks the behavior (filter via `$match`, not embedded in `$search`; vector branch still embeds in `$vectorSearch.filter`). → `FixUnusedFtsFilterParamOnMain` (pushed).
+
+### 12. Trim/AOT attribute messages swapped on six DI overloads — ✅ Real bug
+**Root cause:** six `MongoServiceCollectionExtensions` overloads paired the attribute messages backwards — `[RequiresUnreferencedCode(DynamicCodeMessage)]` / `[RequiresDynamicCode(UnreferencedCodeMessage)]`. So under `PublishTrimmed` the IL2026 warning showed the NativeAOT message and under `PublishAot` the IL3050 warning showed the trimming message, pointing developers at the wrong remediation. The other four overloads were already correct.
+**Fix:** swap the six to `[RequiresUnreferencedCode(UnreferencedCodeMessage)]` / `[RequiresDynamicCode(DynamicCodeMessage)]`. Reflection test asserts every annotated method carries the trimming message on `[RequiresUnreferencedCode]` and the NativeAOT message on `[RequiresDynamicCode]`. → `FixSwappedAotMessagesOnMain` (pushed).
+
+> Minor wording nit (not addressed): `UnreferencedCodeMessage`'s tail says "…compatible with NativeAOT" where "trimming" would read better. Pre-existing; out of scope for the swap fix.
