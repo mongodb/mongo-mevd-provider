@@ -33,6 +33,7 @@ focused PR.
 | 13 | `VectorStoreErrorHandler` carries dead SQL-era code + wrong doc | ✅ Real (cleanup) | Remove dead code, fix summary | `FixDeadSqlErrorHandlerCodeOnMain` |
 | 14 | `RunOperationWithRetryAsync` unreachable throw + `maxRetries=0` edge | ✅ Real bug | `while (true)`, attempt-once minimum | `FixRetryZeroAndDeadThrowOnMain` |
 | 15 | DI collection extensions hard-code `TKey = string` | ⚠️ By design | Document the limitation | `DocumentDiStringKeyOnMain` |
+| 16 | `MongoDynamicMapper` stores null vectors as empty arrays | ✅ Real bug | Store `BsonNull.Value` | `FixDynamicNullVectorOnMain` |
 
 Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) · ❌ false positive (no change).
 
@@ -101,3 +102,7 @@ Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) ·
 ### 15. DI collection extensions hard-code `TKey = string` — ⚠️ By design (documented)
 **Finding:** `AddMongoCollection` / `AddKeyedMongoCollection` register `MongoCollection<string, TRecord>`; a caller wanting a `Guid`/`ObjectId`/`int`/`long`-keyed collection can't use them. This is intentional (provider AGENTS.md: matches the Microsoft.Extensions.VectorData `AddXxxCollection` convention, and exposing `TKey` through DI is "a major API addition") and has a workaround — `MongoVectorStore.GetCollection<TKey, TRecord>` supports all five key types — but the limitation was undocumented.
 **Fix (chosen: document):** add a `<remarks>` to all six collection-registration overloads noting they register a string-keyed collection and pointing callers who need another key type to `GetCollection<TKey, TRecord>`. Documentation only; no API change. (Declined the larger option of adding `TKey` overloads, which would diverge from the MEVD DI convention.) → `DocumentDiStringKeyOnMain`.
+
+### 16. `MongoDynamicMapper` stores null vectors as empty arrays — ✅ Real bug
+**Root cause:** `MapFromDataToStorageModel` mapped a null vector to `Array.Empty<object>()` and wrapped the whole switch in `BsonArray.Create`, persisting a null vector as `[]`. On read, `[]` is not BSON null, so it deserialized to a zero-length `ReadOnlyMemory<float>` rather than `null` — silent semantic data loss (null became "empty vector"). The read path already mapped BSON null back to `null`, so only the write side was wrong.
+**Fix:** map a null vector to `BsonNull.Value` (moving `BsonArray.Create` into the non-null arms); null vectors now round-trip to `null`. Non-null vectors are unaffected. Tests: updated the existing null-values test (it had asserted the empty-array result, encoding the bug) and added `NullVectorRoundTripsAsNull` (write a null vector, read it back, assert BSON null in storage and `null` on read; failed before). → `FixDynamicNullVectorOnMain`.
