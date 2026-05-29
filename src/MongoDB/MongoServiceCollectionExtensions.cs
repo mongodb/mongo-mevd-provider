@@ -124,6 +124,12 @@ public static class MongoServiceCollectionExtensions
     /// Registers a <see cref="MongoCollection{TKey, TRecord}"/> as <see cref="VectorStoreCollection{TKey, TRecord}"/>
     /// with <see cref="IMongoDatabase"/> retrieved from the dependency injection container.
     /// </summary>
+    /// <remarks>
+    /// Registers a <c>string</c>-keyed <see cref="MongoCollection{TKey, TRecord}"/>, matching the
+    /// Microsoft.Extensions.VectorData dependency-injection convention. For a <c>Guid</c>, <c>ObjectId</c>,
+    /// <c>int</c>, or <c>long</c> key, resolve a <see cref="MongoVectorStore"/> and call its
+    /// <c>GetCollection&lt;TKey, TRecord&gt;</c> method instead.
+    /// </remarks>
     /// <inheritdoc cref="AddKeyedMongoVectorStore(IServiceCollection, object?, MongoVectorStoreOptions?, ServiceLifetime)"/>
     [RequiresUnreferencedCode(DynamicCodeMessage)]
     [RequiresDynamicCode(UnreferencedCodeMessage)]
@@ -139,6 +145,12 @@ public static class MongoServiceCollectionExtensions
     /// Registers a keyed <see cref="MongoCollection{TKey, TRecord}"/> as <see cref="VectorStoreCollection{TKey, TRecord}"/>
     /// with <see cref="IMongoDatabase"/> retrieved from the dependency injection container.
     /// </summary>
+    /// <remarks>
+    /// Registers a <c>string</c>-keyed <see cref="MongoCollection{TKey, TRecord}"/>, matching the
+    /// Microsoft.Extensions.VectorData dependency-injection convention. For a <c>Guid</c>, <c>ObjectId</c>,
+    /// <c>int</c>, or <c>long</c> key, resolve a <see cref="MongoVectorStore"/> and call its
+    /// <c>GetCollection&lt;TKey, TRecord&gt;</c> method instead.
+    /// </remarks>
     /// <typeparam name="TRecord">The type of the record.</typeparam>
     /// <param name="services">The <see cref="IServiceCollection"/> to register the <see cref="MongoCollection{TKey, TRecord}"/> on.</param>
     /// <param name="serviceKey">The key with which to associate the collection.</param>
@@ -176,6 +188,12 @@ public static class MongoServiceCollectionExtensions
     /// Registers a <see cref="MongoCollection{TKey, TRecord}"/> as <see cref="VectorStoreCollection{TKey,TRecord}"/>
     /// using the provided <paramref name="connectionString"/> and <paramref name="databaseName"/>.
     /// </summary>
+    /// <remarks>
+    /// Registers a <c>string</c>-keyed <see cref="MongoCollection{TKey, TRecord}"/>, matching the
+    /// Microsoft.Extensions.VectorData dependency-injection convention. For a <c>Guid</c>, <c>ObjectId</c>,
+    /// <c>int</c>, or <c>long</c> key, resolve a <see cref="MongoVectorStore"/> and call its
+    /// <c>GetCollection&lt;TKey, TRecord&gt;</c> method instead.
+    /// </remarks>
     /// <inheritdoc cref="AddKeyedMongoCollection{TRecord}(IServiceCollection, object?, string, string, string, MongoCollectionOptions?, ServiceLifetime)"/>
     [RequiresUnreferencedCode(UnreferencedCodeMessage)]
     [RequiresDynamicCode(DynamicCodeMessage)]
@@ -193,6 +211,12 @@ public static class MongoServiceCollectionExtensions
     /// Registers a keyed <see cref="MongoCollection{TKey, TRecord}"/> as <see cref="VectorStoreCollection{TKey,TRecord}"/>
     /// using the provided <paramref name="connectionString"/> and <paramref name="databaseName"/>.
     /// </summary>
+    /// <remarks>
+    /// Registers a <c>string</c>-keyed <see cref="MongoCollection{TKey, TRecord}"/>, matching the
+    /// Microsoft.Extensions.VectorData dependency-injection convention. For a <c>Guid</c>, <c>ObjectId</c>,
+    /// <c>int</c>, or <c>long</c> key, resolve a <see cref="MongoVectorStore"/> and call its
+    /// <c>GetCollection&lt;TKey, TRecord&gt;</c> method instead.
+    /// </remarks>
     /// <typeparam name="TRecord">The type of the record.</typeparam>
     /// <param name="services">The <see cref="IServiceCollection"/> to register the <see cref="MongoCollection{TKey, TRecord}"/> on.</param>
     /// <param name="serviceKey">The key with which to associate the collection.</param>
@@ -224,6 +248,12 @@ public static class MongoServiceCollectionExtensions
     /// Registers a <see cref="MongoCollection{TKey, TRecord}"/> as <see cref="VectorStoreCollection{TKey,TRecord}"/>
     /// using the provided <paramref name="connectionStringProvider"/> and <paramref name="databaseNameProvider"/>.
     /// </summary>
+    /// <remarks>
+    /// Registers a <c>string</c>-keyed <see cref="MongoCollection{TKey, TRecord}"/>, matching the
+    /// Microsoft.Extensions.VectorData dependency-injection convention. For a <c>Guid</c>, <c>ObjectId</c>,
+    /// <c>int</c>, or <c>long</c> key, resolve a <see cref="MongoVectorStore"/> and call its
+    /// <c>GetCollection&lt;TKey, TRecord&gt;</c> method instead.
+    /// </remarks>
     /// <inheritdoc cref="AddKeyedMongoCollection{TRecord}(IServiceCollection, object?, string, Func{IServiceProvider, string}, Func{IServiceProvider, string}, Func{IServiceProvider, MongoCollectionOptions}?, ServiceLifetime)"/>
     [RequiresUnreferencedCode(UnreferencedCodeMessage)]
     [RequiresDynamicCode(DynamicCodeMessage)]
@@ -241,6 +271,12 @@ public static class MongoServiceCollectionExtensions
     /// Registers a keyed <see cref="MongoCollection{TKey, TRecord}"/> as <see cref="VectorStoreCollection{TKey,TRecord}"/>
     /// using the provided <paramref name="connectionStringProvider"/> and <paramref name="databaseNameProvider"/>.
     /// </summary>
+    /// <remarks>
+    /// Registers a <c>string</c>-keyed <see cref="MongoCollection{TKey, TRecord}"/>, matching the
+    /// Microsoft.Extensions.VectorData dependency-injection convention. For a <c>Guid</c>, <c>ObjectId</c>,
+    /// <c>int</c>, or <c>long</c> key, resolve a <see cref="MongoVectorStore"/> and call its
+    /// <c>GetCollection&lt;TKey, TRecord&gt;</c> method instead.
+    /// </remarks>
     /// <typeparam name="TRecord">The type of the record.</typeparam>
     /// <param name="services">The <see cref="IServiceCollection"/> to register the <see cref="VectorStoreCollection{TKey, TRecord}"/> on.</param>
     /// <param name="serviceKey">The key with which to associate the collection.</param>
