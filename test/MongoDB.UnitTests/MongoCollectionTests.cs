@@ -344,12 +344,52 @@ public sealed class MongoCollectionTests
         var hotel2 = new MongoHotelModel("key2") { HotelName = "Test Name 2" };
         var hotel3 = new MongoHotelModel("key3") { HotelName = "Test Name 3" };
 
+        this._mockMongoCollection
+            .Setup(l => l.BulkWriteAsync(
+                It.IsAny<IEnumerable<WriteModel<BsonDocument>>>(),
+                It.IsAny<BulkWriteOptions>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((BulkWriteResult<BsonDocument>)null!);
+
         using var sut = new MongoCollection<string, MongoHotelModel>(
             this._mockMongoDatabase.Object,
             "collection");
 
         // Act
         await sut.UpsertAsync([hotel1, hotel2, hotel3]);
+
+        // Assert: a batch upsert issues a single bulk write of upsert models, not N ReplaceOne round trips.
+        this._mockMongoCollection.Verify(l => l.BulkWriteAsync(
+            It.Is<IEnumerable<WriteModel<BsonDocument>>>(models =>
+                models.Count() == 3 &&
+                models.OfType<ReplaceOneModel<BsonDocument>>().Count() == 3 &&
+                models.OfType<ReplaceOneModel<BsonDocument>>().All(r => r.IsUpsert)),
+            It.IsAny<BulkWriteOptions>(),
+            It.IsAny<CancellationToken>()), Times.Once());
+
+        this._mockMongoCollection.Verify(l => l.ReplaceOneAsync(
+            It.IsAny<FilterDefinition<BsonDocument>>(),
+            It.IsAny<BsonDocument>(),
+            It.IsAny<ReplaceOptions>(),
+            It.IsAny<CancellationToken>()), Times.Never());
+    }
+
+    [Fact]
+    public async Task UpsertEmptyBatchIsNoOpAsync()
+    {
+        // Arrange
+        using var sut = new MongoCollection<string, MongoHotelModel>(
+            this._mockMongoDatabase.Object,
+            "collection");
+
+        // Act
+        await sut.UpsertAsync(Array.Empty<MongoHotelModel>());
+
+        // Assert: no write is issued for an empty batch (BulkWriteAsync throws on an empty request set).
+        this._mockMongoCollection.Verify(l => l.BulkWriteAsync(
+            It.IsAny<IEnumerable<WriteModel<BsonDocument>>>(),
+            It.IsAny<BulkWriteOptions>(),
+            It.IsAny<CancellationToken>()), Times.Never());
     }
 
     [Fact]

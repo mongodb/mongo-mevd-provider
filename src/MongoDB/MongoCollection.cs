@@ -261,17 +261,44 @@ public class MongoCollection<TKey, TRecord> : VectorStoreCollection<TKey, TRecor
         (records, var generatedEmbeddings) = await ProcessEmbeddingsAsync(this._model, records, cancellationToken).ConfigureAwait(false);
 
         var i = 0;
+        var writeModels = new List<WriteModel<BsonDocument>>();
 
         foreach (var record in records)
         {
-            await this.UpsertCoreAsync(record, i++, generatedEmbeddings, cancellationToken).ConfigureAwait(false);
+            writeModels.Add(this.CreateUpsertModel(record, i++, generatedEmbeddings));
         }
+
+        // BulkWriteAsync requires at least one request, so an empty batch is a no-op.
+        if (writeModels.Count == 0)
+        {
+            return;
+        }
+
+        // Issue a single bulk write rather than one ReplaceOne round trip per record. The bulk write is ordered
+        // (the driver default), preserving the previous per-record loop's semantics: on a write error, the records
+        // before it are persisted and the operation stops.
+        await this.RunOperationAsync("BulkWrite", async () =>
+            await this._mongoCollection
+                .BulkWriteAsync(writeModels, options: null, cancellationToken)
+                .ConfigureAwait(false)).ConfigureAwait(false);
     }
 
     private async Task UpsertCoreAsync(TRecord record, int recordIndex, IReadOnlyList<Embedding>?[]? generatedEmbeddings, CancellationToken cancellationToken = default)
     {
-        const string OperationName = "ReplaceOne";
+        var model = this.CreateUpsertModel(record, recordIndex, generatedEmbeddings);
 
+        await this.RunOperationAsync("ReplaceOne", async () =>
+            await this._mongoCollection
+                .ReplaceOneAsync(model.Filter, model.Replacement, new ReplaceOptions { IsUpsert = true }, cancellationToken)
+                .ConfigureAwait(false)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Builds the upsert write model for a single record: fills in an auto-generated key when needed, maps the
+    /// record to its storage document, and targets it by its reserved <c>_id</c>.
+    /// </summary>
+    private ReplaceOneModel<BsonDocument> CreateUpsertModel(TRecord record, int recordIndex, IReadOnlyList<Embedding>?[]? generatedEmbeddings)
+    {
         // Handle auto-generated keys
         var keyProperty = this._model.KeyProperty;
 
@@ -298,15 +325,10 @@ public class MongoCollection<TKey, TRecord> : VectorStoreCollection<TKey, TRecor
             }
         }
 
-        var replaceOptions = new ReplaceOptions { IsUpsert = true };
         var storageModel = this._mapper.MapFromDataToStorageModel(record, recordIndex, generatedEmbeddings);
-
         var key = GetStorageKey(storageModel);
 
-        await this.RunOperationAsync(OperationName, async () =>
-            await this._mongoCollection
-                .ReplaceOneAsync(this.GetFilterById(key), storageModel, replaceOptions, cancellationToken)
-                .ConfigureAwait(false)).ConfigureAwait(false);
+        return new ReplaceOneModel<BsonDocument>(this.GetFilterById(key), storageModel) { IsUpsert = true };
     }
 
     private static TKey GetStorageKey(BsonDocument document)
