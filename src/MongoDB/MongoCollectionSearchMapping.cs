@@ -89,8 +89,9 @@ internal static class MongoCollectionSearchMapping
         // Create the FullTextSearch pipeline first.
         var ftsPipeline = new List<BsonDocument>
         {
-            // The full text search stage.
-            GetFullTextSearchQuery(keywords, fullTextSearchIndexName, textPropertyName, filter),
+            // The full text search stage. The filter is applied below as a separate $match stage (the full-text
+            // $search stage does not accept an MQL filter), so it is not passed here.
+            GetFullTextSearchQuery(keywords, fullTextSearchIndexName, textPropertyName),
             // Limit the results to the maximum that we may require.
             new()
             {
@@ -206,12 +207,14 @@ internal static class MongoCollectionSearchMapping
         return pipeline;
     }
 
-    /// <summary>Builds the full text search query stage.</summary>
+    /// <summary>
+    /// Builds the full text search query stage. Any pre-filter is applied by the caller as a separate <c>$match</c>
+    /// stage after this one, because the full-text <c>$search</c> stage does not accept an MQL filter.
+    /// </summary>
     private static BsonDocument GetFullTextSearchQuery(
         ICollection<string> keywords,
         string fullTextSearchIndexName,
-        string textPropertyName,
-        BsonDocument? filter)
+        string textPropertyName)
     {
         var fullTextSearchQuery = new BsonDocument
         {
