@@ -37,6 +37,7 @@ focused PR.
 | 17 | `MongoConstants.Supported*Types` sets are dead + misleading | ✅ Real (cleanup) | Remove all three sets | `RemoveDeadSupportedTypesConstantsOnMain` |
 | 18 | `GetVectorIndexFields` ignores `IndexKind`; `Dimensions` "unvalidated" | ⚠️ Mixed | Dimensions = false positive; document IndexKind | `DocumentVectorIndexKindOnMain` |
 | 19 | Mappers attributed `[ExcludeFromCodeCoverage]` | ✅ Real (cleanup) | Remove from both mappers | `CoverMappersOnMain` |
+| 20 | `[BsonElement]` vs `[VectorStoreData(StorageName)]` precedence undocumented | ⚠️ Doc gap | Document in `MongoModelBuilder` | `DocumentStorageNamePrecedenceOnMain` |
 
 Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) · ❌ false positive (no change).
 
@@ -122,3 +123,7 @@ Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) ·
 ### 19. Mappers attributed `[ExcludeFromCodeCoverage]` — ✅ Real (cleanup)
 **Finding:** `MongoMapper<TRecord>` and `MongoDynamicMapper` — core record↔BSON mapping paths — carried `[ExcludeFromCodeCoverage]`, hiding them from coverage reports and masking any real gaps.
 **Fix:** remove the attribute from both (and the now-unused `System.Diagnostics.CodeAnalysis` using in each); both are already exercised by `MongoMapperTests` / `MongoDynamicMapperTests`. Left in place on `MongoConstants`, `Throw`, and `VectorStoreErrorHandler` (out of scope for this finding). No behavior change. → `CoverMappersOnMain`.
+
+### 20. `[BsonElement]` vs `[VectorStoreData(StorageName)]` precedence undocumented — ⚠️ Doc gap
+**Finding:** the typed-record storage-name precedence (verified by `MongoBsonMappingTests`) was only described in AGENTS.md, not in the code. Note the reviewer's framing ("base applies `[VectorStoreData]`, then `ProcessProperty` overwrites with `[BsonElement]`") is slightly off: because the provider sets `UsesExternalSerializer = true`, MEVD never applies a `[VectorStoreData(StorageName=...)]` to a CLR-backed property in the first place (see #3) — `[BsonElement]` (else the CLR name) is what takes effect.
+**Fix:** add a `<remarks>` to `MongoModelBuilder` and a comment in `ProcessProperty` documenting the accurate behavior — for typed records use `[BsonElement]` (not the MEVD `StorageName`); for dynamic (definition-only) records the definition's `StorageName` is honored; the key is always stored under `_id`. The attribute types belong to MEVD / the driver, so the note lives on the provider's model builder. Documentation only. → `DocumentStorageNamePrecedenceOnMain`.
