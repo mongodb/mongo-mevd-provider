@@ -580,7 +580,11 @@ public class MongoCollection<TKey, TRecord> : VectorStoreCollection<TKey, TRecor
 
     private async Task CreateIndexesAsync(string collectionName, CancellationToken cancellationToken)
     {
-        var indexCursor = await this._mongoCollection.Indexes.ListAsync(cancellationToken).ConfigureAwait(false);
+        // Atlas Search and Atlas Vector Search indexes are not returned by the regular listIndexes API
+        // (IMongoCollection.Indexes); they are surfaced by the $listSearchIndexes aggregation stage, exposed
+        // via IMongoCollection.SearchIndexes. Querying the wrong manager would make every call think the
+        // indexes are missing and re-issue createSearchIndexes, which fails once they already exist.
+        var indexCursor = await this._mongoCollection.SearchIndexes.ListAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         var indexes = indexCursor.ToList(cancellationToken).Select(index => index["name"].ToString()) ?? [];
 
         var indexArray = new BsonArray();
