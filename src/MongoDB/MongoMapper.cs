@@ -3,7 +3,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.VectorData.ProviderServices;
@@ -15,7 +14,6 @@ using MongoDB.Bson.Serialization.Serializers;
 
 namespace MongoDB.VectorData;
 
-[ExcludeFromCodeCoverage]
 internal sealed class MongoMapper<TRecord> : IMongoMapper<TRecord>
     where TRecord : class
 {
