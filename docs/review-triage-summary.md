@@ -30,6 +30,7 @@ focused PR.
 | 10 | Batch `UpsertAsync` issues N round trips | ✅ Real (perf) | Single `BulkWriteAsync` | `FixBatchUpsertBulkWriteOnMain` (pushed) |
 | 11 | `GetFullTextSearchQuery` accepts but ignores `filter` | ⚠️ Partly valid | Remove dead parameter | `FixUnusedFtsFilterParamOnMain` (pushed) |
 | 12 | Trim/AOT attribute messages swapped on six DI overloads | ✅ Real bug | Swap to correct pairing | `FixSwappedAotMessagesOnMain` (pushed) |
+| 13 | `VectorStoreErrorHandler` carries dead SQL-era code + wrong doc | ✅ Real (cleanup) | Remove dead code, fix summary | `FixDeadSqlErrorHandlerCodeOnMain` |
 
 Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) · ❌ false positive (no change).
 
@@ -86,3 +87,7 @@ Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) ·
 **Fix:** swap the six to `[RequiresUnreferencedCode(UnreferencedCodeMessage)]` / `[RequiresDynamicCode(DynamicCodeMessage)]`. Reflection test asserts every annotated method carries the trimming message on `[RequiresUnreferencedCode]` and the NativeAOT message on `[RequiresDynamicCode]`. → `FixSwappedAotMessagesOnMain` (pushed).
 
 **Follow-up (same branch):** unified the remediation tail of both messages from "…in a way that's compatible with NativeAOT" to "…in a way that's compatible with trimming, as needed by NativeAOT" (trimming-compatibility is the real requirement, which NativeAOT also needs). The problem-description leads are unchanged, so the swap test still holds. No other "compatible with …" remediation phrasing exists elsewhere — the `MongoCollection` / `MongoVectorStore` messages use a different, more specific remediation ("instantiate `MongoDynamicCollection`" / "call `GetDynamicCollection()`").
+
+### 13. `VectorStoreErrorHandler` carries dead SQL-era code + wrong doc — ✅ Real (cleanup)
+**Finding:** the file contained helpers copied from a relational provider that the MongoDB provider never uses — `ExecuteWithErrorHandlingAsync(this DbConnection, …)` (×2), `ReadWithErrorHandlingAsync(this DbDataReader, …)` (×2), and the `ConfiguredCancelableErrorHandlingAsyncEnumerable<TResult, TException>` struct. Verified zero references outside the file (the provider streams via `ErrorHandlingAsyncCursor`). The file-level XML doc also wrongly described the class as "helpers for reading vector store model properties and their attributes."
+**Fix:** remove the dead members (and the now-unused `System.Data.Common` / `System.IO` usings) and rewrite the summary to describe what the class actually does (run operations and translate exceptions to `VectorStoreException`). The retained `RunOperation*` members are unchanged. Verified by the build (nothing referenced the removed code) + green suite. → `FixDeadSqlErrorHandlerCodeOnMain`.
