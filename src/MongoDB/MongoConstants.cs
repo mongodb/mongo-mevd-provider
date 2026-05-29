@@ -28,7 +28,12 @@ internal static class MongoConstants
     internal const string DefaultIndexKind = IndexKind.IvfFlat;
 
     /// <summary>Default distance function for vector search.</summary>
-    internal const string DefaultDistanceFunction = DistanceFunction.CosineDistance;
+    /// <remarks>
+    /// Must be one of the values handled by <see cref="MongoCollectionCreateMapping"/>'s distance-function
+    /// mapping (<see cref="DistanceFunction.CosineSimilarity"/>, <see cref="DistanceFunction.DotProductSimilarity"/>,
+    /// <see cref="DistanceFunction.EuclideanDistance"/>); the unspecified default maps to Atlas "cosine".
+    /// </remarks>
+    internal const string DefaultDistanceFunction = DistanceFunction.CosineSimilarity;
 
     /// <summary>Reserved key property name in MongoDB.</summary>
     internal const string MongoReservedKeyPropertyName = "_id";
