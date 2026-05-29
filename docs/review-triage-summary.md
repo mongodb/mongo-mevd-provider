@@ -34,6 +34,7 @@ focused PR.
 | 14 | `RunOperationWithRetryAsync` unreachable throw + `maxRetries=0` edge | ✅ Real bug | `while (true)`, attempt-once minimum | `FixRetryZeroAndDeadThrowOnMain` |
 | 15 | DI collection extensions hard-code `TKey = string` | ⚠️ By design | Document the limitation | `DocumentDiStringKeyOnMain` |
 | 16 | `MongoDynamicMapper` stores null vectors as empty arrays | ✅ Real bug | Store `BsonNull.Value` | `FixDynamicNullVectorOnMain` |
+| 17 | `MongoConstants.Supported*Types` sets are dead + misleading | ✅ Real (cleanup) | Remove all three sets | `RemoveDeadSupportedTypesConstantsOnMain` |
 
 Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) · ❌ false positive (no change).
 
@@ -106,3 +107,7 @@ Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) ·
 ### 16. `MongoDynamicMapper` stores null vectors as empty arrays — ✅ Real bug
 **Root cause:** `MapFromDataToStorageModel` mapped a null vector to `Array.Empty<object>()` and wrapped the whole switch in `BsonArray.Create`, persisting a null vector as `[]`. On read, `[]` is not BSON null, so it deserialized to a zero-length `ReadOnlyMemory<float>` rather than `null` — silent semantic data loss (null became "empty vector"). The read path already mapped BSON null back to `null`, so only the write side was wrong.
 **Fix:** map a null vector to `BsonNull.Value` (moving `BsonArray.Create` into the non-null arms); null vectors now round-trip to `null`. Non-null vectors are unaffected. Tests: updated the existing null-values test (it had asserted the empty-array result, encoding the bug) and added `NullVectorRoundTripsAsNull` (write a null vector, read it back, assert BSON null in storage and `null` on read; failed before). → `FixDynamicNullVectorOnMain`.
+
+### 17. `MongoConstants.Supported*Types` sets are dead and misleading — ✅ Real (cleanup)
+**Finding:** `SupportedKeyTypes`, `SupportedDataTypes`, and `SupportedVectorTypes` `HashSet<Type>` constants were never referenced and were stale — e.g. `SupportedKeyTypes` listed only `string`, implying string-only keys, while the live validation (`MongoCollection.s_validKeyTypes` / `MongoModelBuilder.ValidateKeyProperty`) also accepts `Guid`, `ObjectId`, `int`, `long`. The data/vector sets were likewise narrower than `MongoModelBuilder.IsDataPropertyTypeValid` / `IsVectorPropertyTypeValidCore`.
+**Fix:** remove all three (and the now-unused `System` / `System.Collections.Generic` usings) rather than "aligning" them — aligning would create a second source of truth prone to drift; `MongoModelBuilder` is authoritative. Distinct from the live `MongoModelBuilder.SupportedVectorTypes` (a `const string` for error messages), which is unchanged. Verified by the build (nothing referenced the removed members) + green suite. → `RemoveDeadSupportedTypesConstantsOnMain`.
