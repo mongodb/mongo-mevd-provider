@@ -536,6 +536,71 @@ public sealed class MongoCollectionTests
         Assert.Equal(0.99f, result.Score);
     }
 
+    [Fact]
+    public async Task HybridSearchReturnsRecordWithScoreAsync()
+    {
+        // Arrange
+        var document = new BsonDocument { ["_id"] = "key", ["Text"] = "hello world" };
+        var searchResult = new BsonDocument { ["document"] = document, ["similarityScore"] = 0.42f };
+
+        var mockCursor = new Mock<IAsyncCursor<BsonDocument>>();
+        mockCursor
+            .SetupSequence(l => l.MoveNextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true)
+            .ReturnsAsync(false);
+        mockCursor.Setup(l => l.Current).Returns([searchResult]);
+
+        this._mockMongoCollection
+            .Setup(l => l.AggregateAsync(
+                It.IsAny<PipelineDefinition<BsonDocument, BsonDocument>>(),
+                It.IsAny<AggregateOptions>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(mockCursor.Object);
+
+        using var sut = new MongoCollection<string, HybridSearchModel>(
+            this._mockMongoDatabase.Object,
+            "collection");
+
+        // Act
+        var result = await sut.HybridSearchAsync(new ReadOnlyMemory<float>([1f, 2f, 3f, 4f]), ["hello"], top: 3).FirstOrDefaultAsync();
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("key", result.Record.Id);
+        Assert.Equal("hello world", result.Record.Text);
+        Assert.Equal(0.42f, result.Score);
+    }
+
+    [Fact]
+    public async Task HybridSearchTranslatesMongoExceptionDuringEnumerationAsync()
+    {
+        // Arrange: cursor creation succeeds, but paging (MoveNextAsync) throws a MongoException. As in the
+        // vector-search path, hybrid-search enumeration must surface a VectorStoreException, not a raw MongoException.
+        var mockCursor = new Mock<IAsyncCursor<BsonDocument>>();
+        mockCursor
+            .Setup(l => l.MoveNextAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new MongoException("simulated connection drop"));
+
+        this._mockMongoCollection
+            .Setup(l => l.AggregateAsync(
+                It.IsAny<PipelineDefinition<BsonDocument, BsonDocument>>(),
+                It.IsAny<AggregateOptions>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(mockCursor.Object);
+
+        using var sut = new MongoCollection<string, HybridSearchModel>(
+            this._mockMongoDatabase.Object,
+            "collection");
+
+        // Act & Assert
+        await Assert.ThrowsAsync<VectorStoreException>(async () =>
+        {
+            await foreach (var _ in sut.HybridSearchAsync(new ReadOnlyMemory<float>([1f, 2f, 3f, 4f]), ["keyword"], top: 3))
+            {
+            }
+        });
+    }
+
     public static TheoryData<List<string>, string, bool> CollectionExistsData => new()
     {
         { ["collection-2"], "collection-2", true },
@@ -685,6 +750,18 @@ public sealed class MongoCollectionTests
         [BsonElement("bson_hotel_name")]
         [VectorStoreData(StorageName = "storage_hotel_name")]
         public string? HotelName { get; set; }
+    }
+
+    private sealed class HybridSearchModel
+    {
+        [VectorStoreKey]
+        public string? Id { get; set; }
+
+        [VectorStoreData(IsFullTextIndexed = true)]
+        public string? Text { get; set; }
+
+        [VectorStoreVector(4, DistanceFunction = DistanceFunction.CosineDistance)]
+        public ReadOnlyMemory<float> Embedding { get; set; }
     }
 
     private sealed class VectorSearchModel
