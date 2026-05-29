@@ -542,21 +542,20 @@ public class MongoCollection<TKey, TRecord> : VectorStoreCollection<TKey, TRecor
             pipeline.Add(MongoCollectionSearchMapping.GetScoreThresholdMatchQuery(ScorePropertyName, options.ScoreThreshold.Value));
         }
 
-        var results = await this.RunOperationWithRetryAsync(
-            "KeywordVectorizedHybridSearch",
+        const string OperationName = "KeywordVectorizedHybridSearch";
+        using var cursor = await this.RunOperationWithRetryAsync(
+            OperationName,
             this._maxRetries,
             this._delayInMilliseconds,
-            async () =>
-            {
-                var cursor = await this._mongoCollection
-                    .AggregateAsync<BsonDocument>(pipeline, cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
-
-                return this.EnumerateAndMapSearchResultsAsync(cursor, options.Skip, options.IncludeVectors, cancellationToken);
-            },
+            () => this._mongoCollection.AggregateAsync<BsonDocument>(pipeline, cancellationToken: cancellationToken),
             cancellationToken).ConfigureAwait(false);
 
-        await foreach (var result in results.ConfigureAwait(false))
+        // Iterate the error-handling wrapper (not the raw cursor) so MongoExceptions thrown during paging are
+        // translated to VectorStoreException, matching the vector-search path in SearchAsync.
+        using var errorHandlingAsyncCursor = new ErrorHandlingAsyncCursor<BsonDocument>(cursor, this._collectionMetadata, OperationName);
+        var mappedResults = this.EnumerateAndMapSearchResultsAsync(errorHandlingAsyncCursor, options.Skip, options.IncludeVectors, cancellationToken);
+
+        await foreach (var result in mappedResults.ConfigureAwait(false))
         {
             yield return result;
         }
