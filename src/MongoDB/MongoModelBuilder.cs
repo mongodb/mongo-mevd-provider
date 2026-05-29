@@ -14,8 +14,18 @@ namespace MongoDB.VectorData;
 
 /// <summary>
 /// Customized MongoDB model builder that adds specialized configuration of property storage names
-/// (Mongo's reserve key property name and [BsonElement]).
+/// (Mongo's reserved key property name and [BsonElement]).
 /// </summary>
+/// <remarks>
+/// The provider serializes records with the MongoDB BSON serializer and therefore sets
+/// <c>UsesExternalSerializer = true</c>. As a result, MEVD does not apply a storage name set via
+/// <c>[VectorStoreData(StorageName = ...)]</c> (or the other <c>VectorStore*</c> attributes / definition properties)
+/// to CLR-backed (typed) properties. For a typed record the BSON field name is the <c>[BsonElement]</c> name when
+/// present (applied in <see cref="ProcessProperty"/>), otherwise the CLR property name — so use <c>[BsonElement]</c>,
+/// not the MEVD <c>StorageName</c>, to customize a typed record's storage name. For dynamic (definition-only) records
+/// there is no CLR property, so the definition's <c>StorageName</c> is honored. The key property is always stored
+/// under Mongo's reserved <c>_id</c> name (handled by the mapper).
+/// </remarks>
 internal class MongoModelBuilder() : CollectionModelBuilder(s_validationOptions)
 {
     internal const string SupportedVectorTypes = "ReadOnlyMemory<float>, Embedding<float>, float[]";
@@ -31,6 +41,8 @@ internal class MongoModelBuilder() : CollectionModelBuilder(s_validationOptions)
     {
         base.ProcessProperty(clrProperty, definitionProperty);
 
+        // For CLR-backed properties the base does not apply a MEVD StorageName (UsesExternalSerializer = true), so the
+        // BSON field name comes from [BsonElement] when present; otherwise it falls back to the CLR property name.
         if (clrProperty?.GetCustomAttribute<BsonElementAttribute>() is { } bsonElementAttribute
             && this.PropertyMap.TryGetValue(clrProperty.Name, out var property))
         {
