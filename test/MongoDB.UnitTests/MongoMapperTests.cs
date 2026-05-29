@@ -2,9 +2,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Extensions.VectorData;
 using MongoDB.VectorData;
 using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Conventions;
 using Xunit;
 
 namespace MongoDB.VectorData.UnitTests;
@@ -84,5 +86,38 @@ public sealed class MongoMapperTests
         Assert.Equal(["tag1", "tag2"], hotel.Tags);
         Assert.True(hotel.ParkingIncluded);
         Assert.True(new ReadOnlyMemory<float>([1f, 2f, 3f]).Span.SequenceEqual(hotel.DescriptionEmbedding!.Value.Span));
+    }
+
+    [Fact]
+    public void ConstructingMapperRegistersConventionsOnlyOncePerRecordType()
+    {
+        // ConventionRegistry is a process-wide global, and the driver's Register appends a pack every time
+        // (it never deduplicates by name). Registering from the instance constructor therefore leaks a new
+        // entry on each MongoMapper<TRecord> creation (and MongoVectorStore creates collections per call).
+        // Registration must happen once per record type.
+        var model = new MongoModelBuilder().Build(typeof(ConventionProbeModel), typeof(string), definition: null, defaultEmbeddingGenerator: null);
+
+        _ = new MongoMapper<ConventionProbeModel>(model);
+        var registrationsAfterFirst = CountRegisteredIgnoreExtraElementsConventions(typeof(ConventionProbeModel));
+
+        for (var i = 0; i < 5; i++)
+        {
+            _ = new MongoMapper<ConventionProbeModel>(model);
+        }
+        var registrationsAfterMany = CountRegisteredIgnoreExtraElementsConventions(typeof(ConventionProbeModel));
+
+        Assert.Equal(registrationsAfterFirst, registrationsAfterMany);
+    }
+
+    private static int CountRegisteredIgnoreExtraElementsConventions(Type recordType)
+        => ConventionRegistry.Lookup(recordType).Conventions.OfType<IgnoreExtraElementsConvention>().Count();
+
+    private sealed class ConventionProbeModel
+    {
+        [VectorStoreKey]
+        public string? Id { get; set; }
+
+        [VectorStoreData]
+        public string? Name { get; set; }
     }
 }

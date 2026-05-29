@@ -28,17 +28,13 @@ internal sealed class MongoMapper<TRecord> : IMongoMapper<TRecord>
     private readonly string _keyPropertyModelName;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="MongoMapper{TRecord}"/> class.
+    /// Registers the provider's BSON conventions for <typeparamref name="TRecord"/> exactly once.
+    /// <see cref="ConventionRegistry"/> is process-global and its <c>Register</c> appends without
+    /// deduplicating, so this must not run per instance — the static constructor runs once per closed
+    /// generic type (guaranteed by the runtime), before the first <typeparamref name="TRecord"/> class map is built.
     /// </summary>
-    /// <param name="model">The model.</param>
-    public MongoMapper(CollectionModel model)
+    static MongoMapper()
     {
-        this._model = model;
-
-        var keyProperty = model.KeyProperty;
-        this._keyPropertyModelName = keyProperty.ModelName;
-        this._keyClrProperty = keyProperty.PropertyInfo;
-
         var conventionPack = new ConventionPack
         {
             new IgnoreExtraElementsConvention(ignoreExtraElements: true),
@@ -49,6 +45,19 @@ internal sealed class MongoMapper<TRecord> : IMongoMapper<TRecord>
             nameof(MongoMapper<TRecord>),
             conventionPack,
             type => type == typeof(TRecord));
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MongoMapper{TRecord}"/> class.
+    /// </summary>
+    /// <param name="model">The model.</param>
+    public MongoMapper(CollectionModel model)
+    {
+        this._model = model;
+
+        var keyProperty = model.KeyProperty;
+        this._keyPropertyModelName = keyProperty.ModelName;
+        this._keyClrProperty = keyProperty.PropertyInfo;
     }
 
     public BsonDocument MapFromDataToStorageModel(TRecord dataModel, int recordIndex, IReadOnlyList<Embedding>?[]? generatedEmbeddings)
