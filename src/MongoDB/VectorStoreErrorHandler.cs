@@ -136,7 +136,9 @@ internal static class VectorStoreErrorHandler
 
         var exceptions = new List<Exception>();
 
-        while (retries < maxRetries)
+        // Loop forever; the operation is attempted at least once and the catch blocks below throw once retries
+        // are exhausted (retries >= maxRetries). With maxRetries == 0 this means a single attempt with no retry.
+        while (true)
         {
             try
             {
@@ -179,14 +181,6 @@ internal static class VectorStoreErrorHandler
                 await Task.Delay(delayInMilliseconds, cancellationToken).ConfigureAwait(false);
             }
         }
-
-        throw new VectorStoreException("Call to vector store failed.", new AggregateException(exceptions))
-        {
-            VectorStoreSystemName = metadata.VectorStoreSystemName,
-            VectorStoreName = metadata.VectorStoreName,
-            CollectionName = metadata.CollectionName,
-            OperationName = operationName
-        };
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -236,7 +230,9 @@ internal static class VectorStoreErrorHandler
 
         var exceptions = new List<Exception>();
 
-        while (retries < maxRetries)
+        // Loop forever; the operation is attempted at least once and the catch blocks below throw once retries
+        // are exhausted (retries >= maxRetries). With maxRetries == 0 this means a single attempt with no retry.
+        while (true)
         {
             try
             {
@@ -280,14 +276,6 @@ internal static class VectorStoreErrorHandler
                 await Task.Delay(delayInMilliseconds, cancellationToken).ConfigureAwait(false);
             }
         }
-
-        throw new VectorStoreException("Call to vector store failed.", new AggregateException(exceptions))
-        {
-            VectorStoreSystemName = metadata.VectorStoreSystemName,
-            VectorStoreName = metadata.VectorStoreName,
-            CollectionName = metadata.CollectionName,
-            OperationName = operationName
-        };
     }
 
     public struct ConfiguredCancelableErrorHandlingAsyncEnumerable<TResult, TException>
