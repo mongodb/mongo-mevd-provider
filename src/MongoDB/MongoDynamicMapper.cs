@@ -60,19 +60,19 @@ internal sealed class MongoDynamicMapper(CollectionModel model) : IMongoMapper<D
                     ? ge
                     : vectorValue;
 
-                document[property.StorageName] = BsonArray.Create(
-                    vector switch
-                    {
-                        ReadOnlyMemory<float> m
-                            => MemoryMarshal.TryGetArray(m, out ArraySegment<float> segment) && segment.Count == segment.Array!.Length ? segment.Array : m.ToArray(),
-                        Embedding<float> e
-                            => MemoryMarshal.TryGetArray(e.Vector, out ArraySegment<float> segment) && segment.Count == segment.Array!.Length ? segment.Array : e.Vector.ToArray(),
-                        float[] a => a,
+                document[property.StorageName] = vector switch
+                {
+                    ReadOnlyMemory<float> m
+                        => BsonArray.Create(MemoryMarshal.TryGetArray(m, out ArraySegment<float> segment) && segment.Count == segment.Array!.Length ? segment.Array : m.ToArray()),
+                    Embedding<float> e
+                        => BsonArray.Create(MemoryMarshal.TryGetArray(e.Vector, out ArraySegment<float> segment) && segment.Count == segment.Array!.Length ? segment.Array : e.Vector.ToArray()),
+                    float[] a => BsonArray.Create(a),
 
-                        null => Array.Empty<object>(),
+                    // A null vector is stored as BSON null (not an empty array) so it round-trips back to null.
+                    null => (BsonValue)BsonNull.Value,
 
-                        _ => throw new UnreachableException()
-                    });
+                    _ => throw new UnreachableException()
+                };
             }
         }
 

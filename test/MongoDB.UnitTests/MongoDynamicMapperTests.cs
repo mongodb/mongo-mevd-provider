@@ -125,7 +125,34 @@ public sealed class MongoDynamicMapperTests
         // Assert
         Assert.Equal(BsonNull.Value, storageModel["StringDataProp"]);
         Assert.Equal(BsonNull.Value, storageModel["NullableIntDataProp"]);
-        Assert.Empty(storageModel["NullableFloatVector"].AsBsonArray);
+        Assert.Equal(BsonNull.Value, storageModel["NullableFloatVector"]);
+    }
+
+    [Fact]
+    public void NullVectorRoundTripsAsNull()
+    {
+        // Arrange
+        var model = BuildModel(
+        [
+            new VectorStoreKeyProperty("Key", typeof(string)),
+            new VectorStoreVectorProperty("NullableFloatVector", typeof(ReadOnlyMemory<float>?), 10)
+        ]);
+
+        var sut = new MongoDynamicMapper(model);
+
+        var dataModel = new Dictionary<string, object?>
+        {
+            ["Key"] = "key",
+            ["NullableFloatVector"] = null
+        };
+
+        // Act: write then read back.
+        var storageModel = sut.MapFromDataToStorageModel(dataModel, recordIndex: 0, generatedEmbeddings: null);
+        var roundTripped = sut.MapFromStorageToDataModel(storageModel, includeVectors: true);
+
+        // Assert: a null vector is stored as BSON null and reads back as null, not an empty vector.
+        Assert.Equal(BsonNull.Value, storageModel["NullableFloatVector"]);
+        Assert.Null(roundTripped["NullableFloatVector"]);
     }
 
     [Fact]
