@@ -3,7 +3,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.AI;
@@ -16,7 +15,6 @@ namespace MongoDB.VectorData;
 /// <summary>
 /// A mapper that maps between the dynamic data model and the model that the data is stored under, within MongoDB.
 /// </summary>
-[ExcludeFromCodeCoverage]
 internal sealed class MongoDynamicMapper(CollectionModel model) : IMongoMapper<Dictionary<string, object?>>
 {
     /// <inheritdoc />
