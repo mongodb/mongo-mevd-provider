@@ -32,6 +32,7 @@ focused PR.
 | 12 | Trim/AOT attribute messages swapped on six DI overloads | ✅ Real bug | Swap to correct pairing | `FixSwappedAotMessagesOnMain` (pushed) |
 | 13 | `VectorStoreErrorHandler` carries dead SQL-era code + wrong doc | ✅ Real (cleanup) | Remove dead code, fix summary | `FixDeadSqlErrorHandlerCodeOnMain` |
 | 14 | `RunOperationWithRetryAsync` unreachable throw + `maxRetries=0` edge | ✅ Real bug | `while (true)`, attempt-once minimum | `FixRetryZeroAndDeadThrowOnMain` |
+| 15 | DI collection extensions hard-code `TKey = string` | ⚠️ By design | Document the limitation | `DocumentDiStringKeyOnMain` |
 
 Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) · ❌ false positive (no change).
 
@@ -96,3 +97,7 @@ Legend: ✅ real bug fixed · ⚠️ latent/partly-valid (hardened or scoped) ·
 ### 14. `RunOperationWithRetryAsync` unreachable throw + `maxRetries=0` edge — ✅ Real bug
 **Root cause:** both retry overloads used `while (retries < maxRetries)` with a throw after the loop. For `maxRetries >= 1` that post-loop throw was unreachable dead code (the loop always returns on success or throws once retries are exhausted). For `maxRetries == 0` the loop body never ran and the post-loop throw fired immediately with an *empty* `AggregateException` — the operation was never attempted.
 **Fix (chosen: always attempt once):** restructure to `while (true)` so the operation is attempted at least once and the in-catch `if (retries >= maxRetries)` throws once retries are exhausted (carrying the real exceptions). This deletes the unreachable post-loop throw (also required for CS0162 under warnings-as-errors) and makes `maxRetries == 0` mean "try once, no retry" (throwing the actual failure, not an empty aggregate). `maxRetries >= 1` behavior is unchanged. Tests cover both overloads: `maxRetries=0` success/failure, exactly-N attempts, and recovery after transient failures. → `FixRetryZeroAndDeadThrowOnMain`.
+
+### 15. DI collection extensions hard-code `TKey = string` — ⚠️ By design (documented)
+**Finding:** `AddMongoCollection` / `AddKeyedMongoCollection` register `MongoCollection<string, TRecord>`; a caller wanting a `Guid`/`ObjectId`/`int`/`long`-keyed collection can't use them. This is intentional (provider AGENTS.md: matches the Microsoft.Extensions.VectorData `AddXxxCollection` convention, and exposing `TKey` through DI is "a major API addition") and has a workaround — `MongoVectorStore.GetCollection<TKey, TRecord>` supports all five key types — but the limitation was undocumented.
+**Fix (chosen: document):** add a `<remarks>` to all six collection-registration overloads noting they register a string-keyed collection and pointing callers who need another key type to `GetCollection<TKey, TRecord>`. Documentation only; no API change. (Declined the larger option of adding `TKey` overloads, which would diverge from the MEVD DI convention.) → `DocumentDiStringKeyOnMain`.
