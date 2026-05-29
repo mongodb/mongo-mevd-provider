@@ -7,6 +7,7 @@ using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.VectorData;
+using Microsoft.Extensions.VectorData.ProviderServices;
 using MongoDB.VectorData;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
@@ -156,6 +157,20 @@ public sealed class MongoCollectionTests
         this._mockMongoDatabase.Verify(l => l.ListCollectionNamesAsync(
             It.IsAny<ListCollectionNamesOptions>(),
             It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public void GetServiceReturnsCollectionModel()
+    {
+        // The conformance fixture reaches the model through this hook (instead of reflecting over the private
+        // _model field), so the collection must surface its CollectionModel via GetService.
+        using var sut = new MongoCollection<string, MongoHotelModel>(
+            this._mockMongoDatabase.Object,
+            "collection");
+
+        var model = sut.GetService(typeof(CollectionModel));
+
+        Assert.IsAssignableFrom<CollectionModel>(model);
     }
 
     [Fact]

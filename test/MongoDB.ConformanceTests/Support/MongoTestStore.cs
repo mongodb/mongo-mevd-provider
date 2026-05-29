@@ -4,8 +4,8 @@ using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Configurations;
 using DotNet.Testcontainers.Containers;
 using System.Linq.Expressions;
-using System.Reflection;
 using Microsoft.Extensions.VectorData;
+using Microsoft.Extensions.VectorData.ProviderServices;
 using MongoDB.VectorData;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -221,39 +221,21 @@ internal sealed class MongoTestStore : TestStore
         where TKey : notnull
         where TRecord : class
     {
-        var modelField = GetField(collection.GetType(), "_model")
+        // Reach the collection model through the MongoCollection GetService hook (the supported escape hatch),
+        // rather than reflecting over the private _model field, so this stays compile-time-safe.
+        var model = collection.GetService(typeof(CollectionModel)) as CollectionModel
             ?? throw new InvalidOperationException("MongoDB conformance tests require a MongoDB collection model.");
-        var model = modelField.GetValue(collection)
-            ?? throw new InvalidOperationException("MongoDB conformance tests require an initialized MongoDB collection model.");
-        var dataProperties = model.GetType().GetProperty("DataProperties")?.GetValue(model) as System.Collections.IEnumerable
-            ?? throw new InvalidOperationException("MongoDB conformance tests require MongoDB collection data properties.");
 
         var storageNames = new List<string>();
-        foreach (var dataProperty in dataProperties)
+        foreach (var dataProperty in model.DataProperties)
         {
-            var dataPropertyType = dataProperty.GetType();
-            if (dataPropertyType.GetProperty("IsFullTextIndexed")?.GetValue(dataProperty) is true
-                && dataPropertyType.GetProperty("StorageName")?.GetValue(dataProperty) is string storageName)
+            if (dataProperty.IsFullTextIndexed)
             {
-                storageNames.Add(storageName);
+                storageNames.Add(dataProperty.StorageName);
             }
         }
 
         return storageNames;
-    }
-
-    private static FieldInfo? GetField(Type type, string name)
-    {
-        for (var currentType = type; currentType is not null; currentType = currentType.BaseType)
-        {
-            var field = currentType.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
-            if (field is not null)
-            {
-                return field;
-            }
-        }
-
-        return null;
     }
 
     private MongoTestStore()

@@ -572,6 +572,7 @@ public class MongoCollection<TKey, TRecord> : VectorStoreCollection<TKey, TRecor
             serviceType == typeof(VectorStoreCollectionMetadata) ? this._collectionMetadata :
             serviceType == typeof(IMongoDatabase) ? this._mongoDatabase :
             serviceType == typeof(IMongoCollection<BsonDocument>) ? this._mongoCollection :
+            serviceType == typeof(CollectionModel) ? this._model :
             serviceType.IsInstanceOfType(this) ? this :
             null;
     }
