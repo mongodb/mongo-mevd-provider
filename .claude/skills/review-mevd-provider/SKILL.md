@@ -70,7 +70,7 @@ Match each changed file against the table. A file may match more than one review
 
 | Reviewer | Path patterns |
 |---|---|
-| `collection-reviewer` | `src/MongoDB/MongoCollection.cs`, `src/MongoDB/MongoDynamicCollection.cs`, `src/MongoDB/MongoVectorStore.cs`, `src/MongoDB/MongoCollectionCreateMapping.cs`, `src/MongoDB/MongoCollectionTestHook.cs`, `src/MongoDB/MongoConstants.cs`, `src/MongoDB/VectorStoreErrorHandler.cs`, `src/MongoDB/ErrorHandlingAsyncCursor.cs`, `src/MongoDB/Throw.cs` |
+| `collection-reviewer` | `src/MongoDB/MongoCollection.cs`, `src/MongoDB/MongoDynamicCollection.cs`, `src/MongoDB/MongoVectorStore.cs`, `src/MongoDB/MongoCollectionCreateMapping.cs`, `src/MongoDB/MongoCollectionTestHook.cs`, `src/MongoDB/MongoConstants.cs`, `src/MongoDB/VectorStoreErrorHandler.cs`, `src/MongoDB/ErrorHandlingAsyncCursor.cs`, `src/MongoDB/Throw.cs`, `src/MongoDB/MongoClientMetadata.cs` |
 | `mapping-reviewer` | `src/MongoDB/MongoMapper.cs`, `src/MongoDB/MongoDynamicMapper.cs`, `src/MongoDB/MongoModelBuilder.cs`, `src/MongoDB/BsonValueFactory.cs`, `src/MongoDB/IMongoMapper.cs` |
 | `search-reviewer` | `src/MongoDB/MongoFilterTranslator.cs`, `src/MongoDB/MongoCollectionSearchMapping.cs` |
 | `public-api-reviewer` | `src/MongoDB/MongoServiceCollectionExtensions.cs`, `src/MongoDB/MongoVectorStoreOptions.cs`, `src/MongoDB/MongoCollectionOptions.cs` |

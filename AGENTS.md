@@ -64,7 +64,7 @@ The source tree is flat, so area boundaries are by file group rather than by dir
 
 | Area | Files | Reviewer |
 |---|---|---|
-| Collection lifecycle, CRUD, search execution, retry & error handling | `MongoCollection.cs`, `MongoDynamicCollection.cs`, `MongoVectorStore.cs`, `MongoCollectionCreateMapping.cs`, `MongoCollectionTestHook.cs`, `MongoConstants.cs`, `VectorStoreErrorHandler.cs`, `ErrorHandlingAsyncCursor.cs`, `Throw.cs` | `collection-reviewer` |
+| Collection lifecycle, CRUD, search execution, retry & error handling | `MongoCollection.cs`, `MongoDynamicCollection.cs`, `MongoVectorStore.cs`, `MongoCollectionCreateMapping.cs`, `MongoCollectionTestHook.cs`, `MongoConstants.cs`, `VectorStoreErrorHandler.cs`, `ErrorHandlingAsyncCursor.cs`, `Throw.cs`, `MongoClientMetadata.cs` | `collection-reviewer` |
 | Record↔BSON mapping & model building | `MongoMapper.cs`, `MongoDynamicMapper.cs`, `MongoModelBuilder.cs`, `BsonValueFactory.cs`, `IMongoMapper.cs` | `mapping-reviewer` |
 | LINQ-filter translation & search-pipeline construction | `MongoFilterTranslator.cs`, `MongoCollectionSearchMapping.cs` | `search-reviewer` |
 | Public DI extensions & user-facing options | `MongoServiceCollectionExtensions.cs`, `MongoVectorStoreOptions.cs`, `MongoCollectionOptions.cs` | `public-api-reviewer` |
