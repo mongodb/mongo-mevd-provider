@@ -19,7 +19,7 @@ What counts as the public surface:
 - Every public DI extension in `MongoServiceCollectionExtensions` (namespaced into `Microsoft.Extensions.DependencyInjection`).
 - The `MongoConstants` values that escape into persisted state — `DefaultVectorIndexName ("vector_index")`, `DefaultFullTextSearchIndexName ("full_text_search_index")`, `MongoReservedKeyPropertyName ("_id")`, `DefaultIndexKind`, `DefaultDistanceFunction`, `DefaultNumCandidatesRatio`.
 - The serialization shape of records on disk — `_id` ↔ data-model-key swap rules in `MongoMapper` / `MongoDynamicMapper`, vector-property storage encoding (raw BSON array vs `{ Vector: [...] }` wrap), Guid representation (currently `Standard`), `[BsonElement]` vs `[VectorStoreData(StorageName = ...)]` precedence.
-- `MongoEventId`-like values: this repo doesn't currently expose telemetry event IDs, but `LibraryInfo = ("MongoDB.VectorData", <assembly version>)` and `ApplicationName = "MongoDB.VectorData"` on `MongoClient` settings *are* observable telemetry — renaming either is a break to platform-side observability.
+- `MongoEventId`-like values: this repo doesn't currently expose telemetry event IDs, but `MongoClientMetadata.LibraryInfo` (`"MongoDB.VectorData"` + version), which the provider declares in the `MongoClient` handshake, *is* observable telemetry — renaming it is a break to platform-side observability.
 
 `InternalsVisibleTo` grants `MongoDB.VectorData.UnitTests` and `MongoDB.VectorData.ConformanceTests` (and `DynamicProxyGenAssembly2` for Moq); see `src/MongoDB/MongoDB.csproj`. Internal types stay internal regardless.
 
@@ -35,7 +35,7 @@ What counts as the public surface:
 - **Default-value changes on `MongoCollectionOptions`** — `VectorIndexName`, `FullTextSearchIndexName`, `MaxRetries (5)`, `DelayInMilliseconds (1000)`, `NumCandidates (null → "10× limit")`. Each is observable: index names land in created Atlas indexes; retry counts affect failure modes; numCandidates affects search quality. A change is a runtime-behavior break.
 - **`MongoConstants` value changes** — index-name defaults, `MongoReservedKeyPropertyName` (Mongo's spec is `_id`; this is constant, never change), `DefaultIndexKind` / `DefaultDistanceFunction` (these change persisted index shape). Adding new constants is fine; changing existing values is a break.
 - **`AssemblyName` / `RootNamespace`.** `MongoDB.csproj` sets both to `MongoDB.VectorData`. Changing either renames the NuGet package surface and breaks every existing user.
-- **`MongoClient.LibraryInfo` / `ApplicationName`** — these flow to MongoDB Atlas server logs / telemetry. Renaming breaks the platform's ability to attribute traffic to this provider.
+- **`MongoClient` `LibraryInfo`** — flows to MongoDB Atlas server logs / telemetry. Renaming breaks the platform's ability to attribute traffic to this provider.
 - **Nullability tightening** under `<Nullable>enable</Nullable>`. The provider has nullable enabled everywhere; tightening a previously-nullable return to non-nullable, or widening a non-nullable parameter to nullable, is observable to nullable-aware callers.
 - **Trim/AOT-attribute removal** (`[RequiresUnreferencedCode]`, `[RequiresDynamicCode]`). Adding them is safe (warns callers); removing them is a silent break because the code may still be trim/AOT-incompatible and callers would no longer be warned.
 - **Behavior changes on unchanged signatures** — the silent-break category. Examples in this codebase: the `_id` swap rule, vector-property serialization shape, the `IncludeVectors + EmbeddingGenerationRequired` rejection, `numCandidates` defaulting math, hybrid-search weighting constants, score-threshold direction. Each of these is a runtime contract that *no signature change* would advertise to a reviewer.
@@ -58,6 +58,6 @@ What counts as the public surface:
 - A new interface member added to a public-surface type, or `MongoCollection<TKey, TRecord>` getting a new interface implementation.
 - Persisted-document-shape change.
 - `MongoConstants` value change for `MongoReservedKeyPropertyName`, `DefaultVectorIndexName`, `DefaultFullTextSearchIndexName`, `DefaultIndexKind`, `DefaultDistanceFunction`, `DefaultNumCandidatesRatio`.
-- `AssemblyName` / `RootNamespace` / `LibraryInfo` / `ApplicationName` rename.
+- `AssemblyName` / `RootNamespace` / `LibraryInfo` rename.
 - `[RequiresUnreferencedCode]` / `[RequiresDynamicCode]` removed from a method that still uses reflection or unreferenced code.
 - Public surface change without a commit-message or PR-description note explaining it.

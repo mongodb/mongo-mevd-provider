@@ -93,7 +93,7 @@ These three reviewers run on every invocation of `/review-mevd-provider`, regard
 
 | Reviewer | Concern |
 |---|---|
-| `api-stability-reviewer` | Public-API / breaking changes (signatures, defaults, visibility, behavior on unchanged signatures, persisted-document-shape, option-defaults, telemetry attribution like `LibraryInfo` / `ApplicationName`) |
+| `api-stability-reviewer` | Public-API / breaking changes (signatures, defaults, visibility, behavior on unchanged signatures, persisted-document-shape, option-defaults, telemetry attribution like `LibraryInfo`) |
 | `mevd-conformance-reviewer` | MEVD abstraction compliance (`VectorStore` / `VectorStoreCollection<TKey, TRecord>` / `IKeywordHybridSearchable<TRecord>` override shape, MEVD `ProviderServices` types, `RecordRetrievalOptions` / `VectorSearchOptions<TRecord>` / `HybridSearchOptions<TRecord>` usage); multi-target hygiene (`net10`/`net8`/`netstandard2.1`/`net472`, AOT/trim attributes); driver-version compatibility |
 | `security-reviewer` | Credential exposure in connection strings, log statements, exception messages; TLS bypass surfaces; hardcoded secrets in source / tests / fixtures |
 

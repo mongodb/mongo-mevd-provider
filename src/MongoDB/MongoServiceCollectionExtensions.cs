@@ -362,7 +362,6 @@ public static class MongoServiceCollectionExtensions
     {
         var settings = MongoClientSettings.FromConnectionString(connectionString);
         settings.LibraryInfo = MongoClientMetadata.LibraryInfo;
-        settings.ApplicationName = "MongoDB.VectorData";
         return settings;
     }
 }
