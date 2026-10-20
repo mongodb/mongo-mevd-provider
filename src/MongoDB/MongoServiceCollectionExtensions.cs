@@ -7,7 +7,6 @@ using Microsoft.Extensions.VectorData;
 using Microsoft.Shared.Diagnostics;
 using MongoDB.VectorData;
 using MongoDB.Driver;
-using MongoDB.Driver.Core.Configuration;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -362,9 +361,7 @@ public static class MongoServiceCollectionExtensions
     private static MongoClientSettings CreateClientSettings(string connectionString)
     {
         var settings = MongoClientSettings.FromConnectionString(connectionString);
-        var version = typeof(MongoServiceCollectionExtensions).Assembly.GetName().Version;
-        settings.LibraryInfo = new LibraryInfo("MongoDB.VectorData", version?.ToString() ?? "0.0.0.0");
-        settings.ApplicationName = "MongoDB.VectorData";
+        settings.LibraryInfo = MongoClientMetadata.LibraryInfo;
         return settings;
     }
 }
