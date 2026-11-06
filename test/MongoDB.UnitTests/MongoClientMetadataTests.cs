@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft. All rights reserved.
 
 using System.Reflection;
+using MongoDB.Driver;
+using Moq;
 using Xunit;
 
 namespace MongoDB.VectorData.UnitTests;
@@ -24,5 +26,14 @@ public sealed class MongoClientMetadataTests
         Assert.False(string.IsNullOrEmpty(version));
         Assert.DoesNotContain("+", version);
         Assert.Equal(informationalVersion.Split('+')[0], version);
+    }
+
+    [Fact]
+    public void AppendToIgnoresDatabasesWhoseClientIsNotAMongoClient()
+    {
+        var mockMongoDatabase = new Mock<IMongoDatabase>();
+        mockMongoDatabase.Setup(database => database.Client).Returns(new Mock<IMongoClient>().Object);
+
+        MongoClientMetadata.AppendTo(mockMongoDatabase.Object);
     }
 }

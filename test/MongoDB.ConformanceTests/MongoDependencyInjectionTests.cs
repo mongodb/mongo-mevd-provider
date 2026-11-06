@@ -139,4 +139,36 @@ public class MongoDependencyInjectionTests
         Assert.Throws<ArgumentException>(() => services.AddKeyedMongoCollection<Record>(
             serviceKey: "notNull", name: "notNull", ConnectionString, databaseName: ""));
     }
+
+    [Theory]
+    [InlineData(ConnectionString, null)]
+    [InlineData(ConnectionString + "/?appName=myApp", "myApp")]
+    public void ConnectionStringStoreDeclaresProviderAndKeepsAppName(string connectionString, string? expectedAppName)
+    {
+        IServiceCollection services = new ServiceCollection();
+        services.AddMongoVectorStore(connectionString, DatabaseName);
+        using var serviceProvider = services.BuildServiceProvider();
+
+        var store = serviceProvider.GetRequiredService<MongoVectorStore>();
+        var clientSettings = ((IMongoDatabase)store.GetService(typeof(IMongoDatabase))!).Client.Settings;
+
+        Assert.Equal(MongoClientMetadata.LibraryInfo, clientSettings.LibraryInfo);
+        Assert.Equal(expectedAppName, clientSettings.ApplicationName);
+    }
+
+    [Theory]
+    [InlineData(ConnectionString, null)]
+    [InlineData(ConnectionString + "/?appName=myApp", "myApp")]
+    public void ConnectionStringCollectionDeclaresProviderAndKeepsAppName(string connectionString, string? expectedAppName)
+    {
+        IServiceCollection services = new ServiceCollection();
+        services.AddMongoCollection<Record>("collection", connectionString, DatabaseName);
+        using var serviceProvider = services.BuildServiceProvider();
+
+        var collection = serviceProvider.GetRequiredService<MongoCollection<string, Record>>();
+        var clientSettings = ((IMongoDatabase)collection.GetService(typeof(IMongoDatabase))!).Client.Settings;
+
+        Assert.Equal(MongoClientMetadata.LibraryInfo, clientSettings.LibraryInfo);
+        Assert.Equal(expectedAppName, clientSettings.ApplicationName);
+    }
 }

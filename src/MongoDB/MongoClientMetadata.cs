@@ -41,6 +41,6 @@ internal static class MongoClientMetadata
             version = version!.Substring(0, separatorIndex);
         }
 
-        return new LibraryInfo(LibraryName, version);
+        return new(LibraryName, version);
     }
 }
