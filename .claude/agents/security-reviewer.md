@@ -17,7 +17,7 @@ Specific touchpoints:
 - **Exception-message leakage.** `VectorStoreErrorHandler` wraps `MongoException` into `VectorStoreException` and attaches `VectorStoreSystemName` / `VectorStoreName` / `CollectionName` / `OperationName`. The inner `MongoException`'s `Message` may include the database name / host — that's bounded. **It should not include the connection string** because the driver doesn't put it there by default; flag any code path that does.
 - **Test-fixture credentials.** `MongoTestEnvironment` reads from `testsettings.json` (committed; documentation-shaped), `testsettings.development.json` (gitignored; the place for real credentials), and `MongoDB__ConnectionURL` env var (CI). The committed file should never contain a real credential.
 - **TLS validation.** `MongoClientSettings.FromConnectionString(...)` honors `tls=true&tlsAllowInvalidCertificates=false` in the connection string (the safe defaults). The provider does **not** expose a way to bypass TLS validation. If a new public surface accepts a `SslSettings` or `RemoteCertificateValidationCallback` overload, that's a potential foot-gun — flag it.
-- **`LibraryInfo` / `ApplicationName` on `MongoClient` settings** — see `MongoServiceCollectionExtensions.CreateClientSettings`. These flow to the wire-protocol handshake; they're informational, not secret. Their contents should remain literal: `"MongoDB.VectorData"` + assembly version. Don't interpolate user input here.
+- **`LibraryInfo` on `MongoClient` settings** — see `MongoServiceCollectionExtensions.CreateClientSettings` and `MongoClientMetadata`. It flows to the wire-protocol handshake; it's informational, not secret. Its contents should remain literal: `"MongoDB.VectorData"` + assembly version. Don't interpolate user input here.
 - **The provider does not implement encryption** (no CSFLE / Queryable Encryption surface in this repo). If a PR introduces encryption-key handling, that's a new lens entirely — escalate.
 
 ## Review focus
@@ -50,7 +50,7 @@ Specific touchpoints:
 - Any plausible credential / private-key material appears in the diff.
 - A new public method accepts a connection string but logs / echoes / embeds it anywhere observable.
 - A new public surface that accepts `SslSettings` / `RemoteCertificateValidationCallback` / TLS bypass options in a way that defaults to insecure.
-- A new `MongoClientSettings`-shaping path that drops `LibraryInfo` / `ApplicationName` (telemetry break — not a *security* break per se, but it disables one of MongoDB's attribution channels).
+- A new `MongoClientSettings`-shaping path that drops `LibraryInfo` (telemetry break — not a *security* break per se, but it disables one of MongoDB's attribution channels).
 - A new exception type that includes raw connection string in its message.
 - Encryption / KMS / signing primitives appear in source — entirely new surface; escalate to the user before merging.
 - `testsettings.json` (committed) contains anything that looks like a real connection string with credentials.

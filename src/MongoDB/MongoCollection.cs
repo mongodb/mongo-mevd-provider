@@ -121,6 +121,8 @@ public class MongoCollection<TKey, TRecord> : VectorStoreCollection<TKey, TRecor
             throw new NotSupportedException("Only ObjectID, string, Guid, int and long keys are supported.");
         }
 
+        MongoClientMetadata.AppendTo(mongoDatabase);
+
         options ??= MongoCollectionOptions.Default;
 
         // Assign.

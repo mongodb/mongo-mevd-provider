@@ -42,6 +42,8 @@ public sealed class MongoVectorStore : VectorStore
     {
         Throw.IfNull(mongoDatabase);
 
+        MongoClientMetadata.AppendTo(mongoDatabase);
+
         this._mongoDatabase = mongoDatabase;
         this._embeddingGenerator = options?.EmbeddingGenerator;
 
