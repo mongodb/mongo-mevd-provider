@@ -18,10 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-      uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608 # v7
+        uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608 # v7
 
       - name: Setup .NET
-      uses: actions/setup-dotnet@5c1f6c2f1f1b27c6c53d77f83d8d9f3f08f8d1e2 # v6
+        uses: actions/setup-dotnet@5c1f6c2f1f1b27c6c53d77f83d8d9f3f08f8d1e2 # v6
         with:
           global-json-file: global.json
 
