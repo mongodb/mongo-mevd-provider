@@ -53,9 +53,9 @@ public static class MongoServiceCollectionExtensions
         services.Add(new ServiceDescriptor(typeof(MongoVectorStore), serviceKey, (sp, _) =>
         {
             var database = sp.GetRequiredService<IMongoDatabase>();
-            options = GetStoreOptions(sp, _ => options);
+            var resolvedOptions = GetStoreOptions(sp, _ => options);
 
-            return new MongoVectorStore(database, options);
+            return new MongoVectorStore(database, resolvedOptions);
         }, lifetime));
 
         services.Add(new ServiceDescriptor(typeof(VectorStore), serviceKey,
@@ -106,11 +106,11 @@ public static class MongoServiceCollectionExtensions
 
         services.Add(new ServiceDescriptor(typeof(MongoVectorStore), serviceKey, (sp, _) =>
         {
-            options = GetStoreOptions(sp, _ => options);
+            var resolvedOptions = GetStoreOptions(sp, _ => options);
             MongoClient mongoClient = new(CreateClientSettings(connectionString));
             var database = mongoClient.GetDatabase(databaseName);
 
-            return new MongoVectorStore(database, options);
+            return new MongoVectorStore(database, resolvedOptions);
         }, lifetime));
 
         services.Add(new ServiceDescriptor(typeof(VectorStore), serviceKey,
@@ -173,9 +173,9 @@ public static class MongoServiceCollectionExtensions
         services.Add(new ServiceDescriptor(typeof(MongoCollection<string, TRecord>), serviceKey, (sp, _) =>
         {
             var database = sp.GetRequiredService<IMongoDatabase>();
-            options = GetCollectionOptions(sp, _ => options);
+            var resolvedOptions = GetCollectionOptions(sp, _ => options);
 
-            return new MongoCollection<string, TRecord>(database, name, options);
+            return new MongoCollection<string, TRecord>(database, name, resolvedOptions);
         }, lifetime));
 
         AddAbstractions<string, TRecord>(services, serviceKey, lifetime);
