@@ -30,6 +30,8 @@
     <NoWarn>$(NoWarn);CA2007;VSTHRD111</NoWarn>
     <!-- CS1591: Missing XML comment for publicly visible type/member. -->
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- xUnit1051: Use TestContext.Current.CancellationToken (xunit v3 analyzer). -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
     <!-- IDE0340: Use an unbound generic type name. -->
     <NoWarn>$(NoWarn);IDE0340</NoWarn>
     <!-- IDE1006: Naming rule violation. -->
@@ -40,7 +42,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
