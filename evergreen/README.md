@@ -51,3 +51,4 @@ Project variables (Project Settings > Variables), all as in the EF Core provider
 
 Git tag versions: enable "Git Tag Versions" for the project, allow the tag-triggering users/teams, and add a git tag
 alias with tag regex `v.*` that selects variants tagged `release_tag` and all tasks (`.*`).
+
