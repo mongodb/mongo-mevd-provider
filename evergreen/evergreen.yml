@@ -1,0 +1,439 @@
+#################################################
+# Evergreen Template for MongoDB.VectorData provider
+#################################################
+
+# When a task that used to pass starts to fail
+# Go through all versions that may have been skipped to detect
+# when the task started failing
+stepback: true
+
+# Mark a failure as a system/bootstrap failure (purple box) rather then a task
+# failure by default.
+# Actual testing tasks are marked with `type: test`
+command_type: system
+
+# Protect ourself against rogue test case, or curl gone wild, that runs forever
+exec_timeout_secs: 3600
+
+# What to do when evergreen hits the timeout (`post:` tasks are run automatically)
+timeout:
+  - command: shell.exec
+    params:
+      script: |
+        ls -la
+        df -h
+
+functions:
+  fetch-source:
+    # Executes git clone and applies the submitted patch, if any
+    - command: git.get_project
+      params:
+        directory: mongo-mevd-provider
+    # Make an evergreen expansion file with dynamic values
+    - command: shell.exec
+      params:
+        shell: bash
+        working_dir: mongo-mevd-provider
+        script: |
+          PACKAGE_VERSION=$(triggered_by_git_tag=${triggered_by_git_tag} bash ./evergreen/generate-version.sh)
+
+          export DOTNET_SDK_PATH="$(pwd)/../.dotnet"
+          export PROJECT_DIRECTORY="$(pwd)"
+
+          if [ "Windows_NT" = "$OS" ]; then # Magic variable in cygwin
+            export DOTNET_SDK_PATH=$(cygpath -m $DOTNET_SDK_PATH)
+          fi
+
+          cat <<EOT > expansion.yml
+          PROJECT_DIRECTORY: "$PROJECT_DIRECTORY"
+          PACKAGE_VERSION: "$PACKAGE_VERSION"
+          DOTNET_SDK_PATH: "$DOTNET_SDK_PATH"
+          PREPARE_SHELL: |
+            set -o errexit
+            set -o xtrace
+            export PROJECT_DIRECTORY="$PROJECT_DIRECTORY"
+            export PACKAGE_VERSION="$PACKAGE_VERSION"
+            export DOTNET_SDK_PATH="$DOTNET_SDK_PATH"
+            export DOTNET_NOLOGO=true
+            export DOTNET_CLI_TELEMETRY_OPTOUT=true
+            export PATH="$DOTNET_SDK_PATH:$PATH"
+            export PROJECT="${project}"
+          EOT
+          # See what we've done
+          cat expansion.yml
+
+    # Load the expansion file to make an evergreen variable with the current unique version
+    - command: expansions.update
+      params:
+        file: mongo-mevd-provider/expansion.yml
+
+  install-dependencies:
+    - command: shell.exec
+      params:
+        working_dir: mongo-mevd-provider
+        script: |
+          ${PREPARE_SHELL}
+          OS=${OS} \
+            ${PROJECT_DIRECTORY}/evergreen/install-dependencies.sh
+
+  upload-test-results:
+    - command: attach.xunit_results
+      params:
+        file: ./mongo-mevd-provider/artifacts/test-results/**/TEST*.xml
+
+  run-tests:
+    - command: shell.exec
+      type: test
+      params:
+        working_dir: mongo-mevd-provider
+        shell: bash
+        script: |
+          ${PREPARE_SHELL}
+          TEST_SUITE=${TEST_SUITE} \
+            ./evergreen/run-tests.sh
+
+  windows-fix:
+    - command: shell.exec
+      params:
+        script: |
+          if [ "Windows_NT" = "$OS" ]; then
+            ${PREPARE_SHELL}
+            for i in $(find ${PROJECT_DIRECTORY}/evergreen -name \*.sh); do
+              cat $i | tr -d '\r' > $i.new
+              mv $i.new $i
+            done
+          fi
+
+  make-files-executable:
+    - command: shell.exec
+      params:
+        script: |
+          ${PREPARE_SHELL}
+          for i in $(find ${PROJECT_DIRECTORY}/evergreen -name \*.sh); do
+            chmod +x $i
+          done
+
+  pack-packages:
+    - command: shell.exec
+      type: test
+      params:
+        working_dir: mongo-mevd-provider
+        shell: bash
+        script: |
+          ${PREPARE_SHELL}
+          . ./evergreen/pack-packages.sh
+
+  sign-packages:
+    - command: ec2.assume_role
+      params:
+        role_arn: ${ecr-evergreen-role}
+    - command: shell.exec
+      params:
+        shell: bash
+        working_dir: mongo-mevd-provider
+        include_expansions_in_env:
+          - "AWS_ACCESS_KEY_ID"
+          - "AWS_SECRET_ACCESS_KEY"
+          - "AWS_SESSION_TOKEN"
+          - "GRS_USERNAME"
+          - "GRS_PASSWORD"
+          - "AUTHENTICODE_KEY_NAME"
+        script: |
+          ${PREPARE_SHELL}
+          . ./evergreen/sign-packages.sh
+
+  packages-smoke-tests:
+    - command: shell.exec
+      type: test
+      params:
+        working_dir: mongo-mevd-provider
+        shell: bash
+        script: |
+          ${PREPARE_SHELL}
+          PACKAGE_VERSION="${PACKAGE_VERSION}" \
+            ./evergreen/run-smoke-tests.sh
+
+  push-packages:
+    - command: shell.exec
+      type: test
+      params:
+        working_dir: mongo-mevd-provider
+        env:
+          PACKAGES_SOURCE: ${PACKAGES_SOURCE}
+          PACKAGES_SOURCE_KEY: ${PACKAGES_SOURCE_KEY}
+          NUGET_SIGN_CERTIFICATE_FINGERPRINT: ${NUGET_SIGN_CERTIFICATE_FINGERPRINT}
+        script: |
+          ${PREPARE_SHELL}
+          . ./evergreen/push-packages.sh
+
+  upload-package:
+    - command: s3.put
+      params:
+        aws_key: ${aws_key}
+        aws_secret: ${aws_secret}
+        local_file: ./mongo-mevd-provider/artifacts/nuget/${PACKAGE_ID}.${PACKAGE_VERSION}.nupkg
+        remote_file: ${revision}/${PACKAGE_ID}.${PACKAGE_VERSION}.nupkg
+        bucket: ${aws_upload_bucket}
+        permissions: public-read
+        content_type: ${content_type|application/octet-stream}
+    - command: s3.put
+      params:
+        aws_key: ${aws_key}
+        aws_secret: ${aws_secret}
+        local_file: ./mongo-mevd-provider/artifacts/nuget/${PACKAGE_ID}.${PACKAGE_VERSION}.snupkg
+        remote_file: ${revision}/${PACKAGE_ID}.${PACKAGE_VERSION}.snupkg
+        bucket: ${aws_upload_bucket}
+        permissions: public-read
+        content_type: ${content_type|application/octet-stream}
+
+  download-package:
+    - command: s3.get
+      params:
+        aws_key: ${aws_key}
+        aws_secret: ${aws_secret}
+        local_file: ./mongo-mevd-provider/artifacts/nuget/${PACKAGE_ID}.${PACKAGE_VERSION}.nupkg
+        remote_file: ${revision}/${PACKAGE_ID}.${PACKAGE_VERSION}.nupkg
+        bucket: ${aws_upload_bucket}
+    - command: s3.get
+      params:
+        aws_key: ${aws_key}
+        aws_secret: ${aws_secret}
+        local_file: ./mongo-mevd-provider/artifacts/nuget/${PACKAGE_ID}.${PACKAGE_VERSION}.snupkg
+        remote_file: ${revision}/${PACKAGE_ID}.${PACKAGE_VERSION}.snupkg
+        bucket: ${aws_upload_bucket}
+
+  trace-artifacts:
+    - command: papertrail.trace
+      params:
+        key_id: ${papertrail_key_id}
+        secret_key: ${papertrail_secret_key}
+        product: mongo-mevd-provider
+        version: ${PACKAGE_VERSION}
+        filenames:
+          - "mongo-mevd-provider/artifacts/nuget/MongoDB.VectorData.${PACKAGE_VERSION}.nupkg"
+          - "mongo-mevd-provider/artifacts/nuget/MongoDB.VectorData.${PACKAGE_VERSION}.snupkg"
+
+  download-and-promote-augmented-sbom-to-s3-bucket:
+    - command: ec2.assume_role
+      params:
+        role_arn: ${kondukto_role_arn}
+    - command: shell.exec
+      params:
+        working_dir: mongo-mevd-provider
+        include_expansions_in_env:
+          - "AWS_ACCESS_KEY_ID"
+          - "AWS_SECRET_ACCESS_KEY"
+          - "AWS_SESSION_TOKEN"
+        script: |
+          ${PREPARE_SHELL}
+          ./evergreen/fetch-kondukto-token.sh
+    - command: ec2.assume_role
+      params:
+        role_arn: ${ecr-evergreen-role}
+    - command: shell.exec
+      params:
+        working_dir: mongo-mevd-provider
+        include_expansions_in_env:
+          - "AWS_ACCESS_KEY_ID"
+          - "AWS_SECRET_ACCESS_KEY"
+          - "AWS_SESSION_TOKEN"
+        script: |
+          ${PREPARE_SHELL}
+          ./evergreen/download-augmented-sbom.sh
+    - command: ec2.assume_role
+      params:
+        role_arn: ${UPLOAD_SSDLC_RELEASE_ASSETS_ROLE_ARN}
+    - command: s3.put
+      params:
+        aws_key: ${AWS_ACCESS_KEY_ID}
+        aws_secret: ${AWS_SECRET_ACCESS_KEY}
+        aws_session_token: ${AWS_SESSION_TOKEN}
+        local_file: ./mongo-mevd-provider/artifacts/ssdlc/augmented-sbom.json
+        remote_file: mongo-mevd-provider/${PACKAGE_VERSION}/augmented-sbom.json
+        bucket: csharp-driver-release-assets
+        region: us-west-2
+        permissions: private
+        content_type: application/json
+        display_name: augmented-sbom.json
+
+  generate-ssdlc-report:
+    - command: shell.exec
+      params:
+        working_dir: mongo-mevd-provider
+        env:
+          PRODUCT_NAME: mongo-mevd-provider
+          task_id: ${task_id}
+          NUGET_SIGN_CERTIFICATE_FINGERPRINT: ${NUGET_SIGN_CERTIFICATE_FINGERPRINT}
+        script: |
+          ${PREPARE_SHELL}
+          ./evergreen/generate-ssdlc-report.sh
+    - command: s3.put
+      params:
+        aws_key: ${AWS_ACCESS_KEY_ID}
+        aws_secret: ${AWS_SECRET_ACCESS_KEY}
+        aws_session_token: ${AWS_SESSION_TOKEN}
+        local_file: ./mongo-mevd-provider/artifacts/ssdlc/ssdlc_compliance_report.md
+        remote_file: mongo-mevd-provider/${PACKAGE_VERSION}/ssdlc_compliance_report.md
+        bucket: csharp-driver-release-assets
+        region: us-west-2
+        permissions: private
+        content_type: text/markdown
+        display_name: ssdlc_compliance_report.md
+
+pre:
+  - func: fetch-source
+  - func: windows-fix
+  - func: make-files-executable
+  - func: install-dependencies
+
+post:
+  - func: upload-test-results
+
+tasks:
+  # Unit tests only; no MongoDB or Docker needed.
+  - name: unit-tests
+    commands:
+      - func: run-tests
+        vars:
+          TEST_SUITE: "unit"
+
+  # Unit tests plus the conformance suite, which boots an Atlas Local container through Testcontainers.
+  - name: conformance-tests
+    commands:
+      - func: run-tests
+        vars:
+          TEST_SUITE: "conformance"
+
+  - name: pack-packages
+    commands:
+      - func: pack-packages
+      - func: sign-packages
+      - func: upload-package
+        vars:
+          PACKAGE_ID: "MongoDB.VectorData"
+
+  - name: packages-tests
+    commands:
+      - func: download-package
+        vars:
+          PACKAGE_ID: "MongoDB.VectorData"
+      - func: packages-smoke-tests
+
+  - name: push-packages-nuget
+    commands:
+      - func: download-package
+        vars:
+          PACKAGE_ID: "MongoDB.VectorData"
+      - func: push-packages
+        vars:
+          PACKAGES_SOURCE: "https://api.nuget.org/v3/index.json"
+          PACKAGES_SOURCE_KEY: ${nuget_api_key}
+          NUGET_SIGN_CERTIFICATE_FINGERPRINT: ${NUGET_SIGN_CERTIFICATE_FINGERPRINT}
+
+  - name: push-packages-myget
+    commands:
+      - func: download-package
+        vars:
+          PACKAGE_ID: "MongoDB.VectorData"
+      - func: push-packages
+        vars:
+          PACKAGES_SOURCE: "https://www.myget.org/F/mongodb/api/v3/index.json"
+          PACKAGES_SOURCE_KEY: ${myget_api_key}
+          NUGET_SIGN_CERTIFICATE_FINGERPRINT: ${NUGET_SIGN_CERTIFICATE_FINGERPRINT}
+
+  - name: generate-ssdlc-reports
+    commands:
+      - command: ec2.assume_role
+        params:
+          role_arn: ${UPLOAD_SSDLC_RELEASE_ASSETS_ROLE_ARN}
+      - func: download-package
+        vars:
+          PACKAGE_ID: "MongoDB.VectorData"
+      - func: trace-artifacts
+      - func: download-and-promote-augmented-sbom-to-s3-bucket
+      - func: generate-ssdlc-report
+
+buildvariants:
+  # Builds every target framework, including net472 (Windows only), and runs the unit tests.
+  - name: windows-unit-tests
+    display_name: "Windows unit tests"
+    run_on: windows-2022-latest-small
+    expansions:
+      OS: "windows-64"
+    tags: ["tests-variant"]
+    tasks:
+      - name: unit-tests
+
+  # Conformance tests need Docker and enough memory for Atlas Local (mongod + mongot), hence the larger host.
+  - name: ubuntu-2204-conformance-tests
+    display_name: "Ubuntu 22.04 unit and conformance tests"
+    run_on: ubuntu2204-large
+    expansions:
+      OS: "ubuntu-2204"
+    tags: ["tests-variant"]
+    tasks:
+      - name: conformance-tests
+
+  - name: pack-packages
+    display_name: "Package Pack"
+    run_on: ubuntu2204-small
+    expansions:
+      OS: "ubuntu-2204"
+    tags: ["pack-packages", "release_tag"]
+    tasks:
+      - name: pack-packages
+
+  - name: test-packages
+    display_name: "Smoke tests on Ubuntu 22.04"
+    run_on: ubuntu2204-large
+    expansions:
+      OS: "ubuntu-2204"
+    tags: ["package-tests", "release_tag"]
+    tasks:
+      - name: packages-tests
+        git_tag_only: true
+        priority: 10
+        depends_on:
+          - name: pack-packages
+            variant: .pack-packages
+
+  - name: push-packages-nuget
+    display_name: "Package Push (nuget)"
+    run_on: ubuntu2204-small
+    expansions:
+      OS: "ubuntu-2204"
+    tags: ["push-packages", "release_tag"]
+    tasks:
+      - name: push-packages-nuget
+        git_tag_only: true
+        priority: 10
+        depends_on:
+          - name: pack-packages
+            variant: .pack-packages
+          - name: packages-tests
+            variant: .package-tests
+
+  - name: push-packages-myget
+    display_name: "Package Push (myget)"
+    run_on: ubuntu2204-small
+    expansions:
+      OS: "ubuntu-2204"
+    tags: ["push-packages-myget"]
+    tasks:
+      - name: push-packages-myget
+        depends_on:
+          - name: pack-packages
+            variant: .pack-packages
+
+  - name: ssdlc-reports
+    display_name: "SSDLC Reports"
+    run_on: ubuntu2204-small
+    expansions:
+      OS: "ubuntu-2204"
+    tags: ["release_tag"]
+    tasks:
+      - name: generate-ssdlc-reports
+        git_tag_only: true
+        depends_on:
+          - name: push-packages-nuget
+            variant: ".push-packages"
