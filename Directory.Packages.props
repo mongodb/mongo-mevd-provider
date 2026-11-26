@@ -12,7 +12,7 @@
   </ItemGroup>
 
   <ItemGroup Label="Test">
-    <PackageVersion Include="JunitXml.TestLogger" Version="7.1.0" />
+    <PackageVersion Include="JunitXml.TestLogger" Version="8.1.0" />
     <PackageVersion Include="Microsoft.Extensions.Configuration" Version="11.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="11.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="11.0.0" />
